@@ -4,19 +4,19 @@
 
 1. Resolve the requested native version's tag to a full commit. Check existing
    candidates, local/remote maintenance branches, and publication records before
-   creating another preparation. Use
-   a fresh worktree and current `YYYY-MM-` branch. New release lines normally
+   creating another preparation. Use a fresh worktree and current `YYYY-MM-`
+   branch. New release lines normally
    start from `main`; patches to an older line start from its previous released
-   recipe or its `MAJOR.MINOR.x` backport branch. Use the candidate manifest to identify
-   that recipe. If the native tag or prior recipe cannot be identified, report
+   recipe or its `MAJOR.MINOR.x` backport branch. Use the candidate manifest to
+   identify that recipe. If the native tag or prior recipe cannot be identified, report
    the missing input rather than silently substituting native main.
 2. Update `release.json`: native version/revision/archive URL and hash, UDL hash,
    source epoch, bindings version and exact artifact names, and compatible
    UniFFI/toolchain inputs, `features`, and `default_features`. Keep the recipe
    guards, generator invocation, and native Cargo flags in sync with those
    inputs; changing version fields alone is insufficient. Refresh
-   `locks/native.Cargo.lock` from the selected
-   native source and the generator lock/configuration if UniFFI changes. Review
+   `locks/native.Cargo.lock` from the selected native source and the generator
+   lock/configuration if UniFFI changes. Review
    the native API delta, adapt packaging and consumer tests, and regenerate
    wrappers in temporary directories. Change Maven/Nix/toolchain locks only
    when the new inputs require it; preserve unrelated pins. Run formatting,
@@ -29,10 +29,13 @@
    candidate to identify it. Preserve existing maintenance branch tips; do not
    reset or force-push them. These stable branch names are the explicit exception
    to dated preparation/PR names. Patch-release PRs target their existing line.
-3. Confirm the remote repository is public and the candidate workflow has landed
-   on its default branch. Authenticate locally; only repository contents and
-   Actions access are needed for preparation. Do not request registry tokens.
-4. Run `nix run .#release -- prepare --repo OWNER/REPO` on the clean recipe branch.
+3. Confirm `lightningdevkit/ldk-node-bindings` (or the explicitly configured build
+   repository) is public and the candidate workflow has landed on its default
+   branch. Authenticate locally; only repository contents and Actions access
+   are needed for preparation. Do not request registry tokens or dispatch builds
+   in the Swift distribution repository.
+4. Run `nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings` on
+   the clean recipe branch.
    Push any newly created maintenance branches explicitly during this
    authenticated preparation, checking existing remote refs before pushing.
    It pushes, dispatches the exact SHA, watches, downloads, and records the

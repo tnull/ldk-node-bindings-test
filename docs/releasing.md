@@ -3,7 +3,9 @@
 The [release skill](../skills/release/SKILL.md) orchestrates the same CLI that a
 maintainer can run directly. Preparation and verification do not authorize
 production publication. A candidate lives as flat assets on a public GitHub
-prerelease until the maintainer explicitly publishes it locally.
+prerelease in `lightningdevkit/ldk-node-bindings` until the maintainer explicitly
+publishes it locally. `lightningdevkit/ldk-node-swift` is the separate SwiftPM
+publication destination; it does not run the bindings candidate build pipeline.
 
 ## Release versions and branches
 
@@ -40,7 +42,7 @@ explicit local request for the verified candidate and its destinations.
 ## Preparation state
 
 ```bash
-nix run .#release -- prepare --repo OWNER/REPO
+nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings
 ```
 
 Run from a clean, committed recipe branch with a current `YYYY-MM-` prefix.
@@ -89,7 +91,7 @@ logs. All destinations use existing verified candidate bytes.
 | `testpypi` | `UV_PUBLISH_TOKEN` for TestPyPI | Stage the four verified wheels |
 | `pypi` | `UV_PUBLISH_TOKEN` for PyPI | Publish wheels after the TestPyPI gate |
 | `maven` | `MAVEN_CENTRAL_TOKEN`, local GPG key | Sign, submit, validate, and publish the Maven bundle through the Central Portal API |
-| `swift` | `gh` authentication or `GH_TOKEN` | Publish the verified ZIP with its reviewed SwiftPM distribution metadata |
+| `swift` | `gh` authentication or `GH_TOKEN` for the Swift destination | Publish source, metadata, a version tag, and the verified ZIP to `ldk-node-swift` |
 
 Example for an explicitly authorized TestPyPI upload:
 
@@ -114,10 +116,35 @@ or separate portal click is required. Verify the final API status before
 reporting Maven completion; resume an existing deployment after an interruption
 instead of uploading a replacement bundle.
 
-Swift publication additionally takes `--repo OWNER/REPO`. Its generated Swift
-wrapper and final archive URL/checksum must be reviewed in the distribution
-commit before creating the independent bindings version tag. The native source
-tag is never changed. A candidate prerelease tag is not a SwiftPM version tag.
+Swift publication uses a separate destination repository. Review the verified
+generated Swift wrapper, final archive URL/checksum, licenses, and provenance
+before authorizing publication. The local publisher creates their distribution
+commit and an independent `vVERSION` tag in `lightningdevkit/ldk-node-swift`, then
+publishes the unchanged verified XCFramework ZIP as that release's asset.
+The distribution contains `Sources/LDKNode`, `Package.swift`, `LICENSE-APACHE`,
+`LICENSE-MIT`, and `release-provenance.json`. Provenance identifies the native
+source, bindings recipe, candidate, input identity, and verified archive hash.
+Consumers use the Swift repository's SwiftPM URL and version tag; the native
+source tag and candidate prerelease tag have distinct roles.
+
+```bash
+nix run .#release -- publish --verified /tmp/verified-bindings.json \
+  --candidate "$candidate_url" --destination swift \
+  --repo lightningdevkit/ldk-node-swift --confirm "$candidate_id"
+```
+
+The publisher clones the distribution repository, or initializes its empty Git
+remote, and pushes a dated metadata branch and immutable version tag. It uploads
+the verified archive to a draft destination release before publishing that
+release; inspect its recorded state before retrying an interrupted publication.
+
+`--repo` selects the Swift GitHub destination and defaults to
+`lightningdevkit/ldk-node-swift` for Swift publication. Optional `--swift-git-url`
+and `--swift-asset-base-url` configure the Git remote and public archive URL
+prefix. The current publication adapter uses GitHub's release API; using Forgejo
+for Swift publication requires an adapter for its release API as well as changing
+the Git destination. The native source URL is independently configurable in the
+release inputs.
 
 ## Resume and inspect
 

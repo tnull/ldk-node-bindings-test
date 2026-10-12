@@ -13,10 +13,13 @@ The commands and host requirements are documented in the repository
 
 ## Establish identity and intent
 
-- Identify the requested native revision, bindings version, GitHub `OWNER/REPO`,
-  and stage: prepare, verify, collect, or publish. `release.json` and committed
-  locks are authoritative. Resolve the requested native release tag to its exact
-  commit; use its own API and compatible UniFFI version, not native main.
+- Identify the requested native revision, bindings version, and stage: prepare,
+  verify, collect, or publish. Build recipes and public candidates belong to
+  `lightningdevkit/ldk-node-bindings`; SwiftPM publication belongs to
+  `lightningdevkit/ldk-node-swift`. Preserve explicitly configured alternate
+  destinations. `release.json` and committed locks are authoritative. Resolve
+  the requested native release tag to its exact commit; use its own API and
+  compatible UniFFI version, not native main.
 - Inspect the clean recipe worktree, publication ledger, existing candidates,
   and destination versions before resuming. Use current `YYYY-MM-` names for
   preparation/PR branches; stable backport branches use `MAJOR.MINOR.x`.
@@ -38,7 +41,8 @@ new recipe, including the first recipe for a series in this repository. Also
 ensure the previous release line has its branch (for example,
 `0.7.x`) at that line's last published recipe before advancing `main`. Inspect
 local and remote branches first and verify their release line; reuse an existing
-branch without resetting or force-pushing it. Publish newly created maintenance branches alongside the
+branch without resetting or force-pushing it. Publish newly created maintenance
+branches alongside the
 preparation branch when authenticated preparation pushes to GitHub. These stable
 names explicitly override the date-prefix convention for maintenance branches
 only. Patch-release PRs target their matching backport branch. A branch or
@@ -74,8 +78,12 @@ Name this instruction if it is why publication is waiting.
 
 `publish --confirm CANDIDATE_ID` runs locally, rechecks verified files, and uploads
 those same bytes. Add Maven signatures locally after verification. Use TestPyPI
-validation before PyPI promotion. Prepare/review Swift source and archive
-checksum metadata before creating its independent bindings version tag.
+validation before PyPI promotion. For Swift, review the verified wrapper,
+`Package.swift` archive URL/checksum, licenses, and provenance before publishing
+them as a commit/tag in the separate Swift distribution repository. Attach the
+unchanged verified XCFramework ZIP there. The Swift destination does not rebuild
+it or own the candidate CI pipeline. Read the release guide for configurable
+destination options and the current GitHub adapter boundary.
 
 Keep credentials out of chat, logs, arguments, tracked files, and build inputs.
 Use the local environment or credential stores required by the publication tool.
