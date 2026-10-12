@@ -37,12 +37,40 @@ ZIP. Maven PGP signatures are added locally later and are outside that compariso
   27.0 SDKs. Xcode and licensed SDKs are installed locally;
   Nix does not redistribute them or freeze the complete macOS host. CI selects
   that exact installation and fails if it is absent.
+  Python wheels and JVM native libraries target macOS 12.0 on both architectures,
+  matching the SDK's [documented deployment support](https://developer.apple.com/documentation/xcode-release-notes/xcode-27-release-notes).
+  Swift retains macOS 12.0 and iOS 15.0 deployment targets.
 
 The [GitHub Xcode 27 runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
 describes the `xcode-27` Apple Silicon image running macOS 27, currently in
 preview. It is a provisioning reference, not a reproducibility lock. Runner labels
 move over time. Host architecture is checked explicitly; tool and SDK mismatches
 must be resolved by updating reviewed release inputs and creating new candidates.
+
+## Packaging dependencies
+
+Generated wrappers and native binaries are rebuilt in temporary directories;
+the native repository remains authoritative for Rust and the UDL. Gradle
+publication runs in a Nix derivation with a fresh Gradle home and a hash-pinned
+local Maven mirror. Release tasks run offline without updating dependencies.
+
+The Gradle lockfiles pin dependency versions. `verification-metadata.xml` pins
+the bytes of resolved libraries, plugins, and metadata, including direct Gradle
+builds outside Nix. `locks/maven.json` independently pins the mirror's bytes for
+Nix builds. The XML is therefore redundant for the Nix release path, but remains
+useful for standalone Gradle builds and online dependency maintenance. It changes
+when dependencies/plugins change or additional tasks resolve new artifacts;
+ordinary builds and native-only releases do not require regenerating it.
+
+To intentionally update Maven dependencies, copy the Kotlin projects to a fresh
+`/tmp` directory, generate the wrappers there, and run Gradle 7.6 with
+`--write-locks --write-verification-metadata sha256`. Run JVM publication and tests,
+and Android publication and `compileDebugAndroidTestKotlin`, with the pinned JDK
+and SDK. Copy the resulting `gradle.lockfile` and `verification-metadata.xml`
+files back, then run `scripts/build-lock-maven.sh locks/maven.json GRADLE_HOME...`.
+Review dependency/version/hash changes together. Investigate changed bytes at
+existing coordinates before accepting new checksums. Release builds never run
+this maintenance command.
 
 ## Composition and trust
 

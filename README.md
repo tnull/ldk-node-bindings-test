@@ -30,6 +30,11 @@ inputs. Do not update them while building or verifying a candidate.
 
 Linux wheel builds also need a working Docker daemon, or Podman selected with
 `CONTAINER_ENGINE=podman`, to run the pinned manylinux images in `release.json`.
+On Fedora with packaged Nix, install `nix-daemon`, start it with
+`sudo systemctl enable --now nix-daemon`, and set `NIX_REMOTE=daemon` if Nix
+tries to write to the system store directly. Run verification as your normal
+user. Linux build and wheel-test containers disable SELinux label separation
+for their system-store mounts; host-wide SELinux settings and labels stay intact.
 Apple builds and verification run on an **Apple Silicon Mac** with macOS 27,
 full **Xcode 27.0 (27A266a)**, its macOS and iOS/simulator 27.0 SDKs, and the
 Xcode license accepted. CI uses GitHub's `xcode-27` runner, currently in preview.
@@ -44,6 +49,11 @@ local prerequisite; the Darwin group does not need Docker. Intel macOS artifacts
 are built on Apple Silicon; Intel Macs are not supported build hosts. Linux and
 Apple groups require their respective hosts, so one machine cannot independently
 verify the complete release. See [the reproducibility boundary](docs/reproducibility.md).
+
+The resulting Python wheels and Kotlin JVM libraries require macOS 12 or later
+on either architecture. Swift supports macOS 12 and iOS 15 or later. These
+deployment targets describe artifact compatibility, separately from the macOS 27
+build host requirement.
 
 Build one group into a new directory:
 

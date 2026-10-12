@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "native": {
+    "url": "https://github.com/lightningdevkit/ldk-node.git",
+    "rev": "edc8916e289d39a4135b6eda66978a9f765396bb",
+    "version": "0.7.1",
+    "archive_url": "https://api.github.com/repos/lightningdevkit/ldk-node/tarball/edc8916e289d39a4135b6eda66978a9f765396bb",
+    "archive_sha256": "18d5307547c86f8288ba482a3c1d6df00e6464e2a07ac8b6ce84fe595460983e",
+    "udl_sha256": "1a54000c09661c24daf08331721f12fe2f8d5330db563d8791b698925c046c01",
+    "source_date_epoch": 1791810380
+  },
+  "bindings_version": "0.7.1",
+  "uniffi_version": "0.28.3",
+  "rust_version": "1.95.0",
+  "features": [
+    "uniffi"
+  ],
+  "default_features": false,
+  "groups": {
+    "generated": [
+      "generated-sources.tar"
+    ],
+    "linux-x86_64": [
+      "jvm-linux-x86_64.so",
+      "ldk_node-0.7.1-py3-none-manylinux_2_28_x86_64.whl"
+    ],
+    "linux-aarch64": [
+      "ldk_node-0.7.1-py3-none-manylinux_2_28_aarch64.whl"
+    ],
+    "android": [
+      "ldk-node-android-0.7.1.aar",
+      "ldk-node-android-0.7.1-sources.jar",
+      "ldk-node-android-0.7.1-javadoc.jar",
+      "ldk-node-android-0.7.1.pom",
+      "ldk-node-android-0.7.1.module"
+    ],
+    "darwin": [
+      "jvm-darwin-x86_64.dylib",
+      "jvm-darwin-aarch64.dylib",
+      "ldk_node-0.7.1-py3-none-macosx_12_0_x86_64.whl",
+      "ldk_node-0.7.1-py3-none-macosx_12_0_arm64.whl",
+      "LDKNodeFFI.xcframework.zip"
+    ],
+    "jvm": [
+      "ldk-node-jvm-0.7.1.jar",
+      "ldk-node-jvm-0.7.1-sources.jar",
+      "ldk-node-jvm-0.7.1-javadoc.jar",
+      "ldk-node-jvm-0.7.1.pom",
+      "ldk-node-jvm-0.7.1.module"
+    ]
+  },
+  "tools": {
+    "nix": "2.34.8",
+    "gradle": "7.6",
+    "jdk": "17",
+    "android_ndk": "27.3.13750724",
+    "android_jna": "5.17.0",
+    "android_build_tools": "34.0.0",
+    "android_compile_sdk": "34",
+    "xcode": "27.0",
+    "xcode_build": "27A266a",
+    "apple_sdks": {
+      "macosx": "27.0",
+      "iphoneos": "27.0",
+      "iphonesimulator": "27.0"
+    },
+    "manylinux": {
+      "x86_64": "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae",
+      "aarch64": "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6"
+    },
+    "nix_bootstrap": "2.35.2"
+  },
+  "profiles": {
+    "jvm": "release",
+    "python": "release-smaller",
+    "android": "release-smaller",
+    "swift": "release-smaller",
+    "swift_arm64_simulator": "release"
+  },
+  "deployment_targets": {
+    "python_macos_x86_64": "12.0",
+    "python_macos_arm64": "12.0",
+    "swift_macos": "12.0",
+    "swift_ios": "15.0",
+    "android_min_sdk": 21,
+    "android_target_sdk": 31
+  },
+  "archives": {
+    "tar_format": "ustar",
+    "zip_extra_fields": false,
+    "timezone": "UTC"
+  }
+}
