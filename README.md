@@ -28,7 +28,7 @@ Install **Nix 2.35.2**, with `nix-command` and `flakes` enabled, and Git. The
 checked-in `flake.lock`, `release.json`, and dependency locks select the build
 inputs. Do not update them while building or verifying a candidate.
 
-Linux wheel builds also need a working Docker daemon, or Podman selected with
+Linux native builds also need a working Docker daemon, or Podman selected with
 `CONTAINER_ENGINE=podman`, to run the pinned manylinux images in `release.json`.
 On Fedora with packaged Nix, install `nix-daemon`, start it with
 `sudo systemctl enable --now nix-daemon`, and set `NIX_REMOTE=daemon` if Nix
@@ -95,11 +95,12 @@ nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings
 
 Authenticate locally with `gh auth login`, or supply `GH_TOKEN` in the local
 environment. The account needs repository contents and Actions write access to
-push the branch and dispatch CI. Do not put tokens into prompts, tracked files,
-workflow inputs, or repository secrets. The repository must be public, and
-`candidate.yml` must already exist on its default branch for GitHub to accept a
-workflow dispatch. For a new repository, merge the initial infrastructure PR
-before preparing the first hosted candidate.
+push the branch and dispatch CI. Pushing workflow changes also needs Workflows
+write permission (the `workflow` scope for classic PATs). Do not put tokens into
+prompts, tracked files, workflow inputs, or repository secrets. The repository
+must be public, and `candidate.yml` must already exist on its default branch
+for GitHub to accept a workflow dispatch. For a new repository, merge the initial
+infrastructure PR before preparing the first hosted candidate.
 
 Preparation pushes the reviewed recipe and starts
 [the candidate workflow](.github/workflows/candidate.yml). Linux x86_64,
@@ -186,8 +187,10 @@ that distribution repository.
 Pinned environments and normalized archives are the basis for reproducible
 builds; they do not prove equality by themselves. Every platform requires a
 successful CI build and independent local comparison before production use.
-macOS recipes are supported but still require execution and comparison on the
-selected Apple host before publication. Development checks alone do not imply
+See [qualification evidence](docs/qualification.md) for checks actually run and
+outstanding platform validation. macOS recipes are supported but still require
+execution and comparison on the selected Apple host before publication.
+Development checks alone do not imply
 that a release has been built, independently reproduced, or published.
 
 The [shared interface](docs/interfaces.md) describes the build and release CLI
