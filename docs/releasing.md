@@ -51,7 +51,10 @@ nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings
 
 Run from a clean, committed recipe branch with a current `YYYY-MM-` prefix.
 Use local `gh` authentication or `GH_TOKEN` with contents and Actions write
-access. The command records its resumable state in `.release/prepare.json` and
+access. When pushing changes under `.github/workflows`, also grant Workflows
+write permission, or the `workflow` scope for a classic PAT; see
+[GitHub's permission requirements](https://docs.github.com/en/rest/repos/contents#create-or-update-file-contents).
+The command records its resumable state in `.release/prepare.json` and
 downloads candidates into `.release/candidates/CANDIDATE_ID`. Retain this local
 state when continuing a release; do not commit it or its downloaded artifacts.
 
@@ -94,7 +97,7 @@ logs. All destinations use existing verified candidate bytes.
 | --- | --- | --- |
 | `testpypi` | `UV_PUBLISH_TOKEN` for TestPyPI | Stage the four verified wheels |
 | `pypi` | `UV_PUBLISH_TOKEN` for PyPI | Publish wheels after the TestPyPI gate |
-| `maven` | `MAVEN_CENTRAL_TOKEN`, local GPG key | Sign, submit, validate, and publish the Maven bundle through the Central Portal API |
+| `maven` | `CENTRAL_TOKEN_USERNAME` and `CENTRAL_TOKEN_PASSWORD` (or `MAVEN_CENTRAL_TOKEN`), local GPG key | Sign, submit, validate, and publish the Maven bundle through the Central Portal API |
 | `swift` | `gh` authentication or `GH_TOKEN` for the Swift destination | Publish source, metadata, a version tag, and the verified ZIP to `ldk-node-swift` |
 
 Example for an explicitly authorized TestPyPI upload:
