@@ -32,7 +32,8 @@ group from committed inputs into an empty output directory. It runs the same
 Nix derivations or pinned external recipes in CI and locally. No credentials,
 signing, publication, source mutation, or dependency updates occur here.
 `--candidate` is required only for JVM assembly, supplying the three named JVM
-native assets. This assembly is conditional on their independent verification.
+native assets. Acceptance of this assembly for final publication requires their
+independent verification; CI can assemble the initial candidate beforehand.
 Generated sources and all project intermediate outputs must rebuild locally
 during verification, even if already present in a Nix store or build cache.
 
@@ -43,9 +44,11 @@ Rust workspace exposes `release` via `nix run .#release -- COMMAND ...`.
 - `prepare --repo OWNER/REPO`: validate clean committed inputs, push the dated
   preparation branch, dispatch candidate CI, watch the run, download candidates,
   and record a resumable ledger; never publish final packages.
-- `inventory --dir DIR --recipe COMMIT --group GROUP --output FILE`: record exact
+- `inventory --dir DIR --recipe COMMIT --group GROUP [--candidate DIR]
+  --output FILE`: record exact
   files, sizes, hashes, group, and hash of release inputs plus dependency locks.
-- `candidate --dir DIR --recipe COMMIT --output FILE`: combine complete group
+- `candidate --dir DIR --recipe COMMIT --run-id ID --attempt N --output FILE`:
+  combine complete group
   inventories into `candidate.json`; require all groups and identical inputs.
 - `verify --candidate URL_OR_DIR --group GROUP --output DIR`: anonymous download,
   independent rebuild, byte comparison, JSON receipt, and explicit partial
@@ -63,9 +66,27 @@ flat files and `candidate.json`. Download with ordinary HTTPS without gh/PAT.
 Build jobs are read-only; only candidate upload uses GitHub's temporary token.
 All user PATs, registry tokens, and PGP signing keys remain on local machines.
 
+The initial build/candidate repository is
+`https://github.com/lightningdevkit/ldk-node-bindings`. SwiftPM distribution is
+published separately to `https://github.com/lightningdevkit/ldk-node-swift`.
+Its version commits contain the generated Swift wrapper, `Package.swift`,
+licenses, and provenance; its release assets contain the unchanged verified
+XCFramework ZIP. The package manifest points at that ZIP with its SHA-256.
+Keep the distribution Git URL and asset destination configurable for a possible
+Forgejo migration. The initial publication adapter supports GitHub; neither
+Swift semantic version tags nor distribution metadata belong in the build
+recipe repository.
+
 Receipts have schema, candidate/input/recipe identity, group, file hashes/sizes,
 and imported JVM native dependency hashes. Receipt collection is a deliberate
 maintainer action, not automatic trust of public submissions. Transport hashes
 alone never count as independent reproduction. Logs/timestamps are outside the
 reproducible payloads. Final uploads rehash files again; publication records
 support checking remote state and resuming without overwriting versions.
+
+Maven publication uses the Central Portal Publisher API from the local CLI.
+Sign the verified unsigned artifacts locally, assemble the repository-layout
+bundle, upload with `publishingType=USER_MANAGED`, persist the deployment ID,
+and poll validation. The explicitly confirmed publish invocation may then
+publish a validated deployment and poll its final state. Keep the Portal token
+and PGP key local; do not invoke legacy Gradle uploads to Central.
