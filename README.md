@@ -10,9 +10,17 @@ local command. Registry credentials, signing keys, and personal access tokens
 stay on the maintainer's machine.
 
 `release.json` selects the native revision, bindings version, and toolchain.
-Rust source, the authoritative UDL, native tags, and crates.io publication remain in
-the native repository. This repository owns distribution recipes and independent
-SwiftPM tags. A sibling checkout is not needed.
+Rust source, the authoritative UDL, native tags, and crates.io publication remain
+in the native repository. A sibling checkout is not needed.
+
+| Repository | Purpose |
+| --- | --- |
+| [ldk-node](https://github.com/lightningdevkit/ldk-node) | Native Rust source, authoritative UDL, and native releases |
+| [ldk-node-bindings](https://github.com/lightningdevkit/ldk-node-bindings) | Build recipes, CI, public candidates, verification, and local release tooling |
+| [ldk-node-swift](https://github.com/lightningdevkit/ldk-node-swift) | SwiftPM distribution source, `Package.swift`, version tags, and verified XCFramework release assets |
+
+The Swift repository is a publication destination. All Swift builds and
+candidate verification run from the recipes in this bindings repository.
 
 ## Build environment
 
@@ -67,7 +75,7 @@ and newer on Linux x86_64/aarch64 and macOS x86_64/arm64.
 Use the repository-local [release skill](skills/release/SKILL.md), for example:
 
 > Use skills/release/SKILL.md to prepare a bindings release for LDK Node VERSION
-> in OWNER/REPO. Stop before publication.
+> in lightningdevkit/ldk-node-bindings. Stop before publication.
 
 The skill prepares a reviewed recipe branch for the requested native release,
 including updated pins, dependency locks, and compatible bindings/tests. Patch
@@ -77,7 +85,7 @@ releases for older series start from that series' previous recipe. See
 Or run the entrypoint directly from a clean, committed preparation branch:
 
 ```bash
-nix run .#release -- prepare --repo OWNER/REPO
+nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings
 ```
 
 Authenticate locally with `gh auth login`, or supply `GH_TOKEN` in the local
@@ -140,7 +148,7 @@ The lower-level CLI also accepts a public candidate URL or a local candidate
 directory. It requires a clean checkout of the exact recipe commit:
 
 ```bash
-candidate_url=https://github.com/OWNER/REPO/releases/tag/CANDIDATE_ID
+candidate_url=https://github.com/lightningdevkit/ldk-node-bindings/releases/tag/CANDIDATE_ID
 env -u GH_TOKEN -u GITHUB_TOKEN nix run .#release -- verify \
   --candidate "$candidate_url" --group linux-x86_64 \
   --output /tmp/ldk-node-verification-linux
@@ -163,7 +171,10 @@ nix run .#release -- collect --candidate "$candidate_url" \
 The collector checks the actual candidate files against those receipts. Missing
 targets, different recipes, altered files, or unverified JVM dependencies prevent
 collection. See [release operation](docs/releasing.md) for the local publication
-commands and recovery rules.
+commands and recovery rules. Explicit local Swift publication sends the
+verified generated wrapper, `Package.swift`, licenses, provenance, and unchanged
+XCFramework ZIP to `lightningdevkit/ldk-node-swift`; its version tag belongs to
+that distribution repository.
 
 ## Verification status
 
