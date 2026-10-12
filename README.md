@@ -28,7 +28,7 @@ Install **Nix 2.35.2**, with `nix-command` and `flakes` enabled, and Git. The
 checked-in `flake.lock`, `release.json`, and dependency locks select the build
 inputs. Do not update them while building or verifying a candidate.
 
-Linux wheel builds also need a working Docker daemon, or Podman selected with
+Linux native builds also need a working Docker daemon, or Podman selected with
 `CONTAINER_ENGINE=podman`, to run the pinned manylinux images in `release.json`.
 Apple builds and verification run on an **Apple Silicon Mac** with full
 **Xcode 16.4 (16F6)**, its macOS 15.5 and iOS/simulator 18.5 SDKs, and the Xcode
@@ -90,11 +90,12 @@ nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings
 
 Authenticate locally with `gh auth login`, or supply `GH_TOKEN` in the local
 environment. The account needs repository contents and Actions write access to
-push the branch and dispatch CI. Do not put tokens into prompts, tracked files,
-workflow inputs, or repository secrets. The repository must be public, and
-`candidate.yml` must already exist on its default branch for GitHub to accept a
-workflow dispatch. For a new repository, merge the initial infrastructure PR
-before preparing the first hosted candidate.
+push the branch and dispatch CI. Pushing workflow changes also needs Workflows
+write permission (the `workflow` scope for classic PATs). Do not put tokens into
+prompts, tracked files, workflow inputs, or repository secrets. The repository
+must be public, and `candidate.yml` must already exist on its default branch
+for GitHub to accept a workflow dispatch. For a new repository, merge the initial
+infrastructure PR before preparing the first hosted candidate.
 
 Preparation pushes the reviewed recipe and starts
 [the candidate workflow](.github/workflows/candidate.yml). Linux x86_64,
@@ -128,12 +129,21 @@ release announcement, then run:
 ```
 
 The same command works on supported Linux and macOS hosts without a PAT or GitHub
-write access. It checks the manifest checksum before checking out the candidate's
-exact recipe in a temporary directory, leaving your checkout unchanged. It
-downloads the candidate, independently rebuilds every group supported by your
+write access. It checks the manifest checksum and requires the recipe to be an
+ancestor of `main`, a `MAJOR.MINOR.x` maintenance branch, or a dated preparation
+branch in the official bindings repository. It then checks out that recipe in
+a temporary directory, leaving your checkout unchanged.
+It downloads the candidate, independently rebuilds every group supported by your
 host, and reports verified groups, outstanding groups, and the receipt directory.
-Any mismatch exits unsuccessfully. A checksum copied from the same download is
-only a consistency check; obtain the expected value from a source you trust.
+It continues after individual build failures and exits unsuccessfully if any
+group fails. Successful receipts remain available.
+
+Official branch ancestry establishes repository provenance, not human review. Obtain the
+expected manifest checksum from a source you trust and review the identified
+recipe before running its build scripts. A checksum copied from the same
+download is only a consistency check. Keep a recipe's preparation branch until
+the original commit is an ancestor of `main` or a maintenance branch. A squash
+merge does not preserve that ancestry, and a candidate tag alone is insufficient.
 
 Linux x86_64 verifies `generated`, `linux-x86_64`, `android`, and `jvm`; Linux
 aarch64 verifies `linux-aarch64`; Apple Silicon verifies `darwin`. To select one
@@ -169,7 +179,7 @@ nix run .#release -- collect --candidate "$candidate_url" \
 ```
 
 The collector checks the actual candidate files against those receipts. Missing
-targets, different recipes, altered files, or unverified JVM dependencies prevent
+targets, incompatible receipt hosts, different recipes, altered files, or unverified JVM dependencies prevent
 collection. See [release operation](docs/releasing.md) for the local publication
 commands and recovery rules. Explicit local Swift publication sends the
 verified generated wrapper, `Package.swift`, licenses, provenance, and unchanged
@@ -181,8 +191,10 @@ that distribution repository.
 Pinned environments and normalized archives are the basis for reproducible
 builds; they do not prove equality by themselves. Every platform requires a
 successful CI build and independent local comparison before production use.
-macOS recipes are supported but still require execution and comparison on the
-selected Apple host before publication. Development checks alone do not imply
+See [qualification evidence](docs/qualification.md) for checks actually run and
+outstanding platform validation. macOS recipes are supported but still require
+execution and comparison on the selected Apple host before publication.
+Development checks alone do not imply
 that a release has been built, independently reproduced, or published.
 
 The [shared interface](docs/interfaces.md) describes the build and release CLI
