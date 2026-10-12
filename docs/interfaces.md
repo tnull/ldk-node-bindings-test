@@ -50,6 +50,12 @@ Rust workspace exposes `release` via `nix run .#release -- COMMAND ...`.
 - `candidate --dir DIR --recipe COMMIT --run-id ID --attempt N --output FILE`:
   combine complete group
   inventories into `candidate.json`; require all groups and identical inputs.
+- `verify-candidate ID MANIFEST_SHA256 [--group GROUP] [--output DIR]`:
+  authenticate the public `candidate.json` bytes against the supplied SHA-256,
+  check out the exact recipe in a temporary clone, and independently rebuild
+  the supported host groups. The caller's checkout remains unchanged. Write
+  receipts under the result directory and report partial coverage explicitly.
+  `scripts/verify.sh` provides the same command through the pinned Nix CLI.
 - `verify --candidate URL_OR_DIR --group GROUP --output DIR`: anonymous download,
   independent rebuild, byte comparison, JSON receipt, and explicit partial
   coverage. Require the local clean recipe commit and input identity to match.
