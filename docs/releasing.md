@@ -146,6 +146,40 @@ for Swift publication requires an adapter for its release API as well as changin
 the Git destination. The native source URL is independently configurable in the
 release inputs.
 
+## Consumer qualification
+
+`NativeSmokeTest` verifies JNI/JNA loading and a generated API call without a
+Bitcoin backend. The JVM/Python channel integration tests require bitcoind and
+electrs. Android device tests require an emulator or device; compiling them is
+not a runtime test. Swift's package is compiled against the built framework on
+the Mac build host. Keep these functional checks separate from byte equality.
+
+Android uses JNA 5.17.0 for its 16 KiB page fixes. Both JNA's native payload
+and the packaged LDK libraries are checked for compatible ELF alignment.
+Applications supporting older Android releases need Java 8 library desugaring.
+For example, an application using AGP 7.4 or newer can configure:
+
+```kotlin
+android {
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+    kotlinOptions { jvmTarget = "1.8" }
+}
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+}
+```
+
+See [Android's Java 8 API support](https://developer.android.com/studio/write/java8-support)
+for the desugaring version compatible with the application's AGP version.
+[JNA's Android 6 issue](https://github.com/java-native-access/jna/issues/1662)
+remains open; enabling desugaring is not proof that every consumer is compatible.
+Runtime tests on API 21–23 and a 16 KiB device remain required release
+qualification checks. ELF inspection does not replace those tests.
+
 ## Resume and inspect
 
 Publication state is recorded next to the verified ledger as
