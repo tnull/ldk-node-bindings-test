@@ -38,6 +38,31 @@ is a provisioning reference, not a reproducibility lock. Hosted runner labels
 move over time. Host architecture is checked explicitly; tool and SDK mismatches
 must be resolved by updating reviewed release inputs and creating new candidates.
 
+## Packaging dependencies
+
+Generated wrappers and native binaries are rebuilt in temporary directories;
+the native repository remains authoritative for Rust and the UDL. Gradle
+publication runs in a Nix derivation with a fresh Gradle home and a hash-pinned
+local Maven mirror. Release tasks run offline without updating dependencies.
+
+The Gradle lockfiles pin dependency versions. `verification-metadata.xml` pins
+the bytes of resolved libraries, plugins, and metadata, including direct Gradle
+builds outside Nix. `locks/maven.json` independently pins the mirror's bytes for
+Nix builds. The XML is therefore redundant for the Nix release path, but remains
+useful for standalone Gradle builds and online dependency maintenance. It changes
+when dependencies/plugins change or additional tasks resolve new artifacts;
+ordinary builds and native-only releases do not require regenerating it.
+
+To intentionally update Maven dependencies, copy the Kotlin projects to a fresh
+`/tmp` directory, generate the wrappers there, and run Gradle 7.6 with
+`--write-locks --write-verification-metadata sha256`. Run JVM publication and tests,
+and Android publication and `compileDebugAndroidTestKotlin`, with the pinned JDK
+and SDK. Copy the resulting `gradle.lockfile` and `verification-metadata.xml`
+files back, then run `scripts/build-lock-maven.sh locks/maven.json GRADLE_HOME...`.
+Review dependency/version/hash changes together. Investigate changed bytes at
+existing coordinates before accepting new checksums. Release builds never run
+this maintenance command.
+
 ## Composition and trust
 
 A JVM JAR contains Linux and Darwin native libraries. Linux can reproduce the

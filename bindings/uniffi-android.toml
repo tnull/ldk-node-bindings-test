@@ -1,0 +1,5 @@
+[bindings.kotlin]
+package_name = "org.lightningdevkit.ldknode"
+cdylib_name = "ldk_node"
+android = true
+android_cleaner = true

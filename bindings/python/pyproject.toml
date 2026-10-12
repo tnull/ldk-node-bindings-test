@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ldk_node"
+version = "0.7.1"
+authors = [
+  { name="Elias Rohrer", email="dev@tnull.de" },
+]
+description = "A ready-to-go Lightning node library built using LDK and BDK."
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-APACHE", "LICENSE-MIT"]
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Security :: Cryptography",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.urls]
+"Homepage" = "https://lightningdevkit.org/"
+"Github" = "https://github.com/lightningdevkit/ldk-node"
+"Bug Tracker" = "https://github.com/lightningdevkit/ldk-node/issues"
+
+[dependency-groups]
+dev = ["requests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ldk_node"]
+exclude = ["src/ldk_node/test_ldk_node.py"]
+
+[tool.hatch.build.hooks.custom]
