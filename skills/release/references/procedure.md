@@ -31,9 +31,10 @@
    to dated preparation/PR names. Patch-release PRs target their existing line.
 3. Confirm `lightningdevkit/ldk-node-bindings` (or the explicitly configured build
    repository) is public and the candidate workflow has landed on its default
-   branch. Authenticate locally; only repository contents and Actions access
-   are needed for preparation. Do not request registry tokens or dispatch builds
-   in the Swift distribution repository.
+   branch. Authenticate locally with repository contents and Actions write
+   access; pushing workflow changes also needs Workflows write permission
+   (`workflow` scope for classic PATs). Do not request registry tokens or dispatch
+   builds in the Swift distribution repository.
 4. Run `nix run .#release -- prepare --repo lightningdevkit/ldk-node-bindings` on
    the clean recipe branch.
    Push any newly created maintenance branches explicitly during this
