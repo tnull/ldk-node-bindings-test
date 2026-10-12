@@ -1,0 +1,18 @@
+[package]
+name = "bindings-release"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "release"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { version = "1", default-features = false, features = ["std"] }
+bitcoin_hashes = { version = "0.14", default-features = false }
+clap = { version = "4", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+tempfile = { version = "3", default-features = false, features = ["getrandom"] }
