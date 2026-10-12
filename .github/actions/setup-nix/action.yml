@@ -1,0 +1,15 @@
+name: Pinned Nix
+description: Install the shared Nix bootstrap used for checks and candidates
+runs:
+  using: composite
+  steps:
+    - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      with:
+        install_url: https://releases.nixos.org/nix/nix-2.35.2/install
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+          accept-flake-config = false
+          always-allow-substitutes = false
+    - name: Check Nix bootstrap
+      shell: bash
+      run: test "$(nix --version)" = 'nix (Nix) 2.35.2'

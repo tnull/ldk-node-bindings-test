@@ -1,0 +1,54 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-nix
+      - name: Check Rust formatting
+        run: |
+          nix develop --no-update-lock-file .#checks --command cargo fmt --all --check
+          nix develop --no-update-lock-file .#checks --command cargo fmt --manifest-path bindings/uniffi-bindgen/Cargo.toml --all --check
+      - name: Run Clippy
+        run: |
+          CARGO_TARGET_DIR="$(mktemp -d /tmp/cargo-target-bindings-lint-XXXXXX)"
+          export CARGO_TARGET_DIR
+          nix develop --no-update-lock-file .#checks --command cargo clippy --locked --workspace --all-targets -- -D warnings
+          nix develop --no-update-lock-file .#checks --command cargo clippy --locked --manifest-path bindings/uniffi-bindgen/Cargo.toml --all-targets -- -D warnings
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-nix
+      - name: Lint all tracked shell scripts
+        run: nix develop --no-update-lock-file .#checks --command bash -euo pipefail -c 'git ls-files -z -- "*.sh" | xargs -0 -r shellcheck'
+      - name: Verify locked Nix configuration
+        run: nix flake check --no-update-lock-file
+      - name: Check release tooling and recipes
+        shell: bash
+        run: |
+          CARGO_TARGET_DIR="$(mktemp -d /tmp/cargo-target-bindings-checks-XXXXXX)"
+          export CARGO_TARGET_DIR
+          nix develop --no-update-lock-file .#build --command cargo check --locked --workspace
+          nix develop --no-update-lock-file .#build --command cargo test --locked --workspace
+          nix develop --no-update-lock-file .#build --command scripts/build-check.sh
+          git diff --exit-code

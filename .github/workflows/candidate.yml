@@ -1,0 +1,171 @@
+name: Build candidate
+run-name: candidate ${{ inputs.recipe_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipe_sha:
+        description: Full commit of the reviewed bindings build recipe
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate dispatch identity and public visibility
+        env:
+          RECIPE_SHA: ${{ inputs.recipe_sha }}
+        shell: bash
+        run: |
+          [[ "$RECIPE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$RECIPE_SHA" = "$GITHUB_SHA"
+          jq -e '.repository.private == false' "$GITHUB_EVENT_PATH"
+
+  build:
+    needs: inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: generated
+            runner: ubuntu-24.04
+            arch: x86_64
+          - group: linux-x86_64
+            runner: ubuntu-24.04
+            arch: x86_64
+          - group: linux-aarch64
+            runner: ubuntu-24.04-arm
+            arch: aarch64
+          - group: android
+            runner: ubuntu-24.04
+            arch: x86_64
+          - group: darwin
+            runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.recipe_sha }}
+          persist-credentials: false
+      - name: Check host architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: test "$(uname -m)" = "$EXPECTED_ARCH"
+      - name: Select pinned Apple tools
+        if: matrix.group == 'darwin'
+        shell: bash
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
+          test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+      - uses: ./.github/actions/setup-nix
+      - name: Build and inventory
+        env:
+          BUILD_GROUP: ${{ matrix.group }}
+        shell: bash
+        run: |
+          scripts/build.sh --group "$BUILD_GROUP" --output "$RUNNER_TEMP/output"
+          nix run --no-update-lock-file .#release -- inventory \
+            --dir "$RUNNER_TEMP/output" --recipe "$GITHUB_SHA" \
+            --group "$BUILD_GROUP" \
+            --output "$RUNNER_TEMP/output/$BUILD_GROUP.inventory.json"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: build-${{ matrix.group }}
+          path: ${{ runner.temp }}/output/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+  jvm:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.recipe_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-nix
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/native-inputs
+      - name: Assemble JVM package with all native payloads
+        shell: bash
+        run: |
+          scripts/build.sh --group jvm --output "$RUNNER_TEMP/output" \
+            --candidate "$RUNNER_TEMP/native-inputs"
+          nix run --no-update-lock-file .#release -- inventory \
+            --dir "$RUNNER_TEMP/output" --recipe "$GITHUB_SHA" --group jvm \
+            --candidate "$RUNNER_TEMP/native-inputs" \
+            --output "$RUNNER_TEMP/output/jvm.inventory.json"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: build-jvm
+          path: ${{ runner.temp }}/output/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+  candidate:
+    needs: [build, jvm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.recipe_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-nix
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate
+      - name: Validate complete candidate
+        shell: bash
+        run: |
+          nix run --no-update-lock-file .#release -- candidate \
+            --dir "$RUNNER_TEMP/candidate" --recipe "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/candidate/candidate.json"
+      - name: Upload public prerelease for anonymous verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          candidate_id="$(jq -er '.id' "$RUNNER_TEMP/candidate/candidate.json")"
+          manifest_sha256="$(sha256sum "$RUNNER_TEMP/candidate/candidate.json" | cut -d ' ' -f 1)"
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Unsigned bindings candidate from recipe $GITHUB_SHA.
+
+          Download the assets anonymously and independently rebuild them with
+          the verification commands in the README at that recipe commit.
+          SHA-256 of candidate.json: $manifest_sha256
+
+          ./scripts/verify.sh $candidate_id $manifest_sha256
+
+          Checksums record transport integrity; independent receipts are
+          required before a maintainer can publish these bytes locally.
+
+          Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          EOF
+          gh release create "$candidate_id" "$RUNNER_TEMP/candidate/"* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "$candidate_id" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
