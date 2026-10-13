@@ -129,12 +129,21 @@ release announcement, then run:
 ```
 
 The same command works on supported Linux and macOS hosts without a PAT or GitHub
-write access. It checks the manifest checksum before checking out the candidate's
-exact recipe in a temporary directory, leaving your checkout unchanged. It
-downloads the candidate, independently rebuilds every group supported by your
+write access. It checks the manifest checksum and requires the recipe to be an
+ancestor of `main`, a `MAJOR.MINOR.x` maintenance branch, or a dated preparation
+branch in the official bindings repository. It then checks out that recipe in
+a temporary directory, leaving your checkout unchanged.
+It downloads the candidate, independently rebuilds every group supported by your
 host, and reports verified groups, outstanding groups, and the receipt directory.
-Any mismatch exits unsuccessfully. A checksum copied from the same download is
-only a consistency check; obtain the expected value from a source you trust.
+It continues after individual build failures and exits unsuccessfully if any
+group fails. Successful receipts remain available.
+
+Official branch ancestry establishes repository provenance, not human review. Obtain the
+expected manifest checksum from a source you trust and review the identified
+recipe before running its build scripts. A checksum copied from the same
+download is only a consistency check. Keep a recipe's preparation branch until
+the original commit is an ancestor of `main` or a maintenance branch. A squash
+merge does not preserve that ancestry, and a candidate tag alone is insufficient.
 
 Linux x86_64 verifies `generated`, `linux-x86_64`, `android`, and `jvm`; Linux
 aarch64 verifies `linux-aarch64`; Apple Silicon verifies `darwin`. To select one
@@ -170,7 +179,7 @@ nix run .#release -- collect --candidate "$candidate_url" \
 ```
 
 The collector checks the actual candidate files against those receipts. Missing
-targets, different recipes, altered files, or unverified JVM dependencies prevent
+targets, incompatible receipt hosts, different recipes, altered files, or unverified JVM dependencies prevent
 collection. See [release operation](docs/releasing.md) for the local publication
 commands and recovery rules. Explicit local Swift publication sends the
 verified generated wrapper, `Package.swift`, licenses, provenance, and unchanged
