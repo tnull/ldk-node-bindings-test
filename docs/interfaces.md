@@ -15,7 +15,7 @@ features, default features, and UniFFI compatibility whenever changing releases.
 Groups are `generated`, `linux-x86_64`, `linux-aarch64`, `android`, `darwin`,
 and `jvm`. `generated` produces `generated-sources.tar` with the Kotlin, Android
 Kotlin, Python, Swift, and FFI header sources. Linux groups produce their Python
-wheel; x86_64 additionally produces `jvm-linux-x86_64.so`. Darwin produces
+wheel and `jvm-linux-ARCH.so` for x86_64 or aarch64. Darwin produces
 `jvm-darwin-x86_64.dylib`, `jvm-darwin-aarch64.dylib`, both Python wheels, and
 `LDKNodeFFI.xcframework.zip`. Android and JVM each produce five unsigned primary
 Maven files: binary, sources JAR, Javadoc JAR, POM, and module metadata.
@@ -31,7 +31,7 @@ Python asset names are `ldk_node-VERSION-py3-none-PLATFORM.whl`, with PLATFORM o
 group from committed inputs into an empty output directory. It runs the same
 Nix derivations or pinned external recipes in CI and locally. No credentials,
 signing, publication, source mutation, or dependency updates occur here.
-`--candidate` is required only for JVM assembly, supplying the three named JVM
+`--candidate` is required only for JVM assembly, supplying the four named JVM
 native assets. Acceptance of this assembly for final publication requires their
 independent verification; CI can assemble the initial candidate beforehand.
 Generated sources and all project intermediate outputs must rebuild locally

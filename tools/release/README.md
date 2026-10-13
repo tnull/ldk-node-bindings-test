@@ -54,7 +54,7 @@ from a fresh checkout using the existing verifier.
 | Host | Groups rebuilt by default |
 | --- | --- |
 | x86_64 Linux | generated, linux-x86_64, android, jvm |
-| aarch64 Linux | linux-aarch64 |
+| aarch64 Linux | linux-aarch64, jvm |
 | Apple Silicon macOS | darwin |
 
 Use `--group GROUP` to verify one of your host's supported groups. The final
