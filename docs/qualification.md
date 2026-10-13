@@ -33,7 +33,7 @@ run nested Docker/Podman containers, so the experiments executed the unpacked
 image with Bubblewrap and networking disabled. This is evidence for the native
 and wheel recipes; it is not a successful Docker entrypoint or GitHub CI run.
 
-Observed SHA-256 values:
+Observed SHA-256 values for the original recipe (before the PR review fixes):
 
 | Artifact | SHA-256 |
 | --- | --- |
@@ -44,6 +44,20 @@ Observed SHA-256 values:
 These development results do not constitute release receipts. Release acceptance
 uses the exact candidate recipe, public candidate manifest, and independent
 `verify` and `collect` commands.
+
+## External review evidence
+
+The [PR 2 review](https://github.com/lightningdevkit/ldk-node-bindings/pull/2#pullrequestreview-5495085839)
+reports matching Linux x86_64 bytes through Docker on a separate machine, two
+matching Android builds, and two matching complete JVM assemblies. It also
+reports matching Darwin builds and passing Swift/Python consumers after local
+fixes, using Xcode 26.2 with relaxed pins. These are reviewer-reported results;
+they do not qualify the pinned Xcode 16.4 recipe or the subsequent corrections.
+
+The review corrections change recipe inputs, including generated Android
+configuration and native build flags. Historical hashes above describe the
+earlier experiments; independently compare fresh candidate bytes for the updated
+recipe. Linux aarch64 and pinned-Xcode runtime qualification remain outstanding.
 
 ## Remaining release qualification
 
