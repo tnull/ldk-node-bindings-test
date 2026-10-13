@@ -30,8 +30,12 @@ These stable maintenance names are an explicit exception to the `YYYY-MM-`
 convention. Preparation and PR branches still use the current date prefix.
 Patch-release PRs target the matching maintenance branch. Creating a branch
 records a recipe line; it does not establish that its candidate was published.
-Preserve recipe commits and candidate tags so historical builds remain
-addressable. Each candidate records its full recipe commit and immutable input
+Keep each recipe reachable from the official repository's `main`, numeric
+`MAJOR.MINOR.x`, or dated `YYYY-MM-*` preparation branch. After a squash merge,
+retain the unsquashed preparation branch unless the original recipe remains
+an ancestor of a retained main or maintenance branch. Candidate tags alone do
+not establish the official branch ancestry required by anonymous verification.
+Each candidate records its full recipe commit and immutable input
 identity; verification does not depend on the current contents of `main`.
 
 Use a separate worktree for each preparation, retaining its local `.release`

@@ -56,12 +56,15 @@ directory = "$LDK_NATIVE_DEPS"
 offline = true
 CFG
 export RUSTFLAGS="--remap-path-prefix=$work=/build --remap-path-prefix=$LDK_NATIVE_DEPS=/vendor -C debuginfo=0"
-export CFLAGS="-ffile-prefix-map=$work=/build -fdebug-prefix-map=$work=/build"
-bash scripts/build-generate.sh "$work/source" "$work/generated"
+export CFLAGS="-ffile-prefix-map=$work=/build -ffile-prefix-map=$LDK_NATIVE_DEPS=/vendor"
+# All platform packages consume the same sandboxed generator output. Rebuild
+# it even when present in the store so verification never reuses project work.
+nix --extra-experimental-features 'nix-command flakes' build --no-update-lock-file .#generated --no-link 2>&1 | tee "$work/generation.log"
+generated=$(nix --extra-experimental-features 'nix-command flakes' build --no-update-lock-file --rebuild .#generated --no-link --print-out-paths 2> >(tee -a "$work/generation.log" >&2))
+mkdir -p "$work/generated"
+tar -xf "$generated/generated-sources.tar" -C "$work/generated"
 case "$group" in
     generated)
-        nix --extra-experimental-features 'nix-command flakes' build --no-update-lock-file .#generated --no-link
-        generated=$(nix --extra-experimental-features 'nix-command flakes' build --no-update-lock-file --rebuild .#generated --no-link --print-out-paths)
         cp "$generated/generated-sources.tar" "$output/generated-sources.tar";;
     linux-x86_64|linux-aarch64) source scripts/build-linux.sh;;
     android) source scripts/build-android.sh;;

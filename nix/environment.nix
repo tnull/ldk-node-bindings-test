@@ -174,12 +174,9 @@ in
         mirror
         source
         platform
+        inputs
         ;
       android = android.androidsdk;
-      version = inputs.bindings_version;
-      sourceDateEpoch = inputs.native.source_date_epoch;
-      androidJnaVersion = inputs.tools.android_jna;
-      androidNdkVersion = inputs.tools.android_ndk;
     };
   shells = {
     default = buildShell;

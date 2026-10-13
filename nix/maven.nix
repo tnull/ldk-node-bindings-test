@@ -5,11 +5,12 @@
   android,
   source,
   platform,
-  version,
-  sourceDateEpoch,
-  androidJnaVersion,
-  androidNdkVersion,
+  inputs,
 }:
+let
+  version = inputs.bindings_version;
+  androidJnaVersion = inputs.tools.android_jna;
+in
 pkgs.stdenvNoCC.mkDerivation {
   pname = "ldk-node-${platform}-publication";
   inherit version;
@@ -21,7 +22,8 @@ pkgs.stdenvNoCC.mkDerivation {
   ];
   JAVA_HOME = "${pkgs.jdk17}/lib/openjdk";
   LDK_MAVEN_REPOSITORY = mirror;
-  SOURCE_DATE_EPOCH = toString sourceDateEpoch;
+  LDK_RELEASE_MANIFEST = ../release.json;
+  SOURCE_DATE_EPOCH = toString inputs.native.source_date_epoch;
   dontConfigure = true;
   dontFixup = true;
   buildPhase = ''
@@ -33,12 +35,12 @@ pkgs.stdenvNoCC.mkDerivation {
     ${pkgs.lib.optionalString (platform == "android") ''
       export ANDROID_HOME=${android}/libexec/android-sdk
       export ANDROID_SDK_ROOT=$ANDROID_HOME
-      readelf="$ANDROID_HOME/ndk/${androidNdkVersion}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+      readelf="$ANDROID_HOME/ndk/${inputs.tools.android_ndk}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
       unzip -q ${mirror}/net/java/dev/jna/jna/${androidJnaVersion}/jna-${androidJnaVersion}.aar -d "$TMPDIR/jna"
       for abi in arm64-v8a armeabi-v7a x86_64; do
         bash ${../scripts/build-android-native-check.sh} "$readelf" "$TMPDIR/jna/jni/$abi/libjnidispatch.so"
       done
-      printf '\nandroid.aapt2FromMavenOverride=%s/build-tools/34.0.0/aapt2\n' "$ANDROID_HOME" >> gradle.properties
+      printf '\nandroid.aapt2FromMavenOverride=%s/build-tools/${inputs.tools.android_build_tools}/aapt2\n' "$ANDROID_HOME" >> gradle.properties
     ''}
     gradle --offline --no-daemon --no-build-cache --rerun-tasks \
       --max-workers 2 -Pkotlin.compiler.execution.strategy=in-process \

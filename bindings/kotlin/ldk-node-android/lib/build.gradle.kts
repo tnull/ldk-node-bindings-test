@@ -1,4 +1,6 @@
 // library version is defined in gradle.properties
+import groovy.json.JsonSlurper
+
 val libraryVersion: String by project
 
 plugins {
@@ -8,6 +10,12 @@ plugins {
     id("maven-publish")
     id("org.jlleitschuh.gradle.ktlint") version "11.6.1"
 }
+
+val releaseInputs = JsonSlurper().parse(
+    file(System.getenv("LDK_RELEASE_MANIFEST") ?: "../../../../release.json")
+) as Map<*, *>
+val releaseTools = releaseInputs["tools"] as Map<*, *>
+val deploymentTargets = releaseInputs["deployment_targets"] as Map<*, *>
 
 repositories {
     val mirror = System.getenv("LDK_MAVEN_REPOSITORY")
@@ -19,9 +27,9 @@ repositories {
 }
 
 android {
-    compileSdk = 34
-    buildToolsVersion = "34.0.0"
-    ndkVersion = "27.3.13750724"
+    compileSdk = releaseTools["android_compile_sdk"].toString().toInt()
+    buildToolsVersion = releaseTools["android_build_tools"].toString()
+    ndkVersion = releaseTools["android_ndk"].toString()
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -30,8 +38,8 @@ android {
     kotlinOptions { jvmTarget = "1.8" }
 
     defaultConfig {
-        minSdk = 21
-        targetSdk = 31
+        minSdk = deploymentTargets["android_min_sdk"].toString().toInt()
+        targetSdk = deploymentTargets["android_target_sdk"].toString().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
     }
@@ -52,7 +60,7 @@ android {
 }
 
 dependencies {
-    implementation("net.java.dev.jna:jna:5.17.0@aar")
+    implementation("net.java.dev.jna:jna:${releaseTools["android_jna"]}@aar")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
     implementation("androidx.appcompat:appcompat:1.4.0")
