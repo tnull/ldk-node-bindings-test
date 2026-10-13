@@ -29,8 +29,34 @@ pub fn run(command: &mut Command) -> Result<()> {
     );
     Ok(())
 }
+pub fn git_command() -> Command {
+    let mut command = Command::new("git");
+    // Explicit repository paths must win over the caller's repository selectors.
+    // Authentication, author identity, and signing configuration stay local.
+    for key in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_SHALLOW_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_NAMESPACE",
+        "GIT_PREFIX",
+        "GIT_INTERNAL_SUPER_PREFIX",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    ] {
+        command.env_remove(key);
+    }
+    command
+}
 pub fn git(root: &Path, args: &[&str]) -> Result<String> {
-    output(Command::new("git").current_dir(root).args(args))
+    output(git_command().current_dir(root).args(args))
 }
 pub fn root() -> Result<std::path::PathBuf> {
     Ok(git(Path::new("."), &["rev-parse", "--show-toplevel"])?.into())
@@ -134,7 +160,7 @@ mod tests {
 
     fn git(root: &Path, args: &[&str]) -> Result<String> {
         output(
-            Command::new("git")
+            git_command()
                 .current_dir(root)
                 .args(args)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")

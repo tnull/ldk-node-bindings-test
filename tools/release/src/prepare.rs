@@ -61,7 +61,7 @@ pub fn prepare(root: &Path, repo: &str) -> Result<()> {
         );
         existing
     } else {
-        run(Command::new("git").current_dir(root).args([
+        run(git_command().current_dir(root).args([
             "-c",
             "credential.helper=!gh auth git-credential",
             "push",

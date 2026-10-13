@@ -221,7 +221,7 @@ fn download_assets(base: &str, dir: &Path, candidate: &Candidate) -> Result<()> 
 }
 
 fn anonymous_git() -> Command {
-    let mut command = Command::new("git");
+    let mut command = git_command();
     command
         .args(["-c", "core.hooksPath=/dev/null"])
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -412,6 +412,9 @@ fn verify_loaded(
             "NIX_REMOTE",
             "TMPDIR",
             "CONTAINER_ENGINE",
+            "DOCKER_HOST",
+            "DOCKER_CONTEXT",
+            "XDG_RUNTIME_DIR",
             "DEVELOPER_DIR",
         ] {
             if let Some(value) = std::env::var_os(key) {
