@@ -63,7 +63,7 @@ outputs already exist. Tool/dependency caches are permitted. Keep failed-build
 evidence; do not edit receipt hashes, skip files, or relax equality checks.
 
 Provide receipts for `generated`, `linux-x86_64`, `linux-aarch64`, `android`,
-`darwin`, and `jvm`. JVM assembly imports the three candidate native libraries
+`darwin`, and `jvm`. JVM assembly imports the four candidate native libraries
 and records their identities. Matching assembly alone does not establish that
 the imported libraries were independently rebuilt.
 

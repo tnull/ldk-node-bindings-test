@@ -79,7 +79,7 @@ fn fixture() -> Repo {
     let candidate = tempfile::tempdir().unwrap();
     git(dir.path(), &["init", "-b", "2026-10-test"]);
     fs::write(dir.path().join(".gitignore"), "/.release/\n").unwrap();
-    let groups = json!({"generated":["generated-sources.tar"],"linux-x86_64":["jvm-linux-x86_64.so","linux.whl"],"linux-aarch64":["arm.whl"],"android":["ldk-node-android-0.7.1.aar"],"darwin":["jvm-darwin-x86_64.dylib","jvm-darwin-aarch64.dylib","mac.whl","LDKNodeFFI.xcframework.zip"],"jvm":["ldk-node-jvm-0.7.1.jar"]});
+    let groups = json!({"generated":["generated-sources.tar"],"linux-x86_64":["jvm-linux-x86_64.so","linux.whl"],"linux-aarch64":["jvm-linux-aarch64.so","arm.whl"],"android":["ldk-node-android-0.7.1.aar"],"darwin":["jvm-darwin-x86_64.dylib","jvm-darwin-aarch64.dylib","mac.whl","LDKNodeFFI.xcframework.zip"],"jvm":["ldk-node-jvm-0.7.1.jar"]});
     write(
         &dir.path().join("release.json"),
         &json!({"schema":1,"bindings_version":"0.7.1","native":{"rev":"edc8916e289d39a4135b6eda66978a9f765396bb"},"groups":groups,"deployment_targets":{"swift_macos":"13.2","swift_ios":"16.1"}}),
@@ -227,6 +227,25 @@ fn collect_rejects_receipt_from_an_incompatible_host() {
             ],
         ),
         "receipt host cannot build group",
+    );
+}
+
+#[test]
+fn jvm_inventory_binds_the_linux_arm_library() {
+    let r = fixture();
+    let c = build_candidate(&r);
+    let native = c["groups"]["linux-aarch64"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["name"] == "jvm-linux-aarch64.so")
+        .unwrap();
+    assert!(
+        c["groups"]["jvm"]["imports"]
+            .as_array()
+            .unwrap()
+            .contains(native),
+        "JVM assembly must record its exact Linux ARM native input"
     );
 }
 #[test]
@@ -1754,7 +1773,7 @@ fn entry_rebuilds_host_groups_once_from_pinned_recipe_without_changing_checkout(
     ok(result);
     let expected: &[&str] = match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => &["generated", "linux-x86_64", "android", "jvm"],
-        ("linux", "aarch64") => &["linux-aarch64"],
+        ("linux", "aarch64") => &["linux-aarch64", "jvm"],
         ("macos", "aarch64") => &["darwin"],
         _ => panic!("test requires a supported verification host"),
     };

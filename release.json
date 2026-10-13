@@ -25,6 +25,7 @@
       "ldk_node-0.7.1-py3-none-manylinux_2_28_x86_64.whl"
     ],
     "linux-aarch64": [
+      "jvm-linux-aarch64.so",
       "ldk_node-0.7.1-py3-none-manylinux_2_28_aarch64.whl"
     ],
     "android": [

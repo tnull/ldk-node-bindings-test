@@ -16,15 +16,16 @@ pub const GROUPS: [&str; 6] = [
     "linux-aarch64",
     "linux-x86_64",
 ];
-pub const JVM_NATIVE: [&str; 3] = [
+pub const JVM_NATIVE: [&str; 4] = [
     "jvm-darwin-aarch64.dylib",
     "jvm-darwin-x86_64.dylib",
+    "jvm-linux-aarch64.so",
     "jvm-linux-x86_64.so",
 ];
 pub fn host_groups(os: &str, arch: &str) -> Result<&'static [&'static str]> {
     match (os, arch) {
         ("linux", "x86_64") => Ok(&["generated", "linux-x86_64", "android", "jvm"]),
-        ("linux", "aarch64") => Ok(&["linux-aarch64"]),
+        ("linux", "aarch64") => Ok(&["linux-aarch64", "jvm"]),
         ("macos", "aarch64") => Ok(&["darwin"]),
         _ => bail!("unsupported verification host {os}-{arch}; use x86_64 Linux, aarch64 Linux, or Apple Silicon macOS"),
     }
