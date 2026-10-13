@@ -220,19 +220,22 @@ fn download_assets(base: &str, dir: &Path, candidate: &Candidate) -> Result<()> 
     Ok(())
 }
 
-fn host_groups(os: &str, arch: &str) -> Result<&'static [&'static str]> {
-    match (os, arch) {
-        ("linux", "x86_64") => Ok(&["generated", "linux-x86_64", "android", "jvm"]),
-        ("linux", "aarch64") => Ok(&["linux-aarch64"]),
-        ("macos", "aarch64") => Ok(&["darwin"]),
-        _ => anyhow::bail!(
-            "unsupported verification host {os}-{arch}; use x86_64 Linux, aarch64 Linux, or Apple Silicon macOS"
-        ),
-    }
+fn anonymous_git() -> Command {
+    let mut command = Command::new("git");
+    command
+        .args(["-c", "core.hooksPath=/dev/null"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_COUNT", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "")
+        .env_remove("GIT_CONFIG_PARAMETERS")
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN");
+    command
 }
 
 pub fn verify_candidate(
-    root: &Path,
     id: &str,
     sha256: &str,
     group: Option<&str>,
@@ -283,40 +286,40 @@ pub fn verify_candidate(
     validate_candidate_id(&candidate)?;
 
     let checkout = output.join("recipe");
-    run(Command::new("git")
-        .args(["clone", "--quiet", "--no-hardlinks", "--no-checkout"])
-        .arg(root)
+    // Begin with no local refs or shallow boundaries. Fetch branch history from
+    // the official repository, never an arbitrary SHA or candidate tag.
+    run(anonymous_git()
+        .args(["init", "--quiet", "--template="])
         .arg(&checkout))?;
-    if git(&checkout, &["cat-file", "-t", &candidate.recipe]).is_err() {
-        // Fetch only the authenticated commit from the public repository. Ignore
-        // credential helpers, URL rewrites, extra headers, and interactive auth.
-        run(Command::new("git")
-            .current_dir(&checkout)
-            .args([
-                "fetch",
-                "--quiet",
-                "--no-tags",
-                "--depth=1",
-                "https://github.com/lightningdevkit/ldk-node-bindings.git",
-                &candidate.recipe,
-            ])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_COUNT", "0")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_ASKPASS", "")
-            .env_remove("GIT_CONFIG_PARAMETERS")
-            .env_remove("GH_TOKEN")
-            .env_remove("GITHUB_TOKEN"))?;
-    }
+    run(anonymous_git().current_dir(&checkout).args([
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "https://github.com/lightningdevkit/ldk-node-bindings.git",
+        "+refs/heads/*:refs/remotes/reviewed/*",
+    ]))?;
+    let containing = anonymous_git()
+        .current_dir(&checkout)
+        .args([
+            "for-each-ref",
+            "--format=%(refname)",
+            "--contains",
+            &candidate.recipe,
+            "refs/remotes/reviewed/",
+        ])
+        .output()?;
     ensure!(
-        git(&checkout, &["cat-file", "-t", &candidate.recipe])? == "commit",
-        "recipe must name a commit"
+        containing.status.success() && std::str::from_utf8(&containing.stdout)?.lines()
+            .filter_map(|name| name.strip_prefix("refs/remotes/reviewed/"))
+            .any(release_branch),
+        "recipe is not reachable from an official release branch (main, MAJOR.MINOR.x, or YYYY-MM-* preparation branch)"
     );
-    git(
-        &checkout,
-        &["checkout", "--quiet", "--detach", &candidate.recipe],
-    )?;
+    run(anonymous_git().current_dir(&checkout).args([
+        "checkout",
+        "--quiet",
+        "--detach",
+        &candidate.recipe,
+    ]))?;
     validate_candidate(
         &candidate,
         &load_inputs(&checkout)?,
@@ -332,21 +335,28 @@ pub fn verify_candidate(
     };
     let receipts = output.join("receipts");
     let mut verified = Vec::new();
-    let result: Result<()> = groups.iter().try_for_each(|group| {
+    let mut failures = Vec::new();
+    for group in groups {
         eprintln!("Rebuilding {group}...");
-        verify_loaded(
+        match verify_loaded(
             &checkout,
             &loaded,
             group,
             &receipts,
             &output.join("diagnostics").join(group),
-        )?;
-        verified.push(*group);
-        Ok(())
-    });
+        ) {
+            Ok(()) => verified.push(group),
+            Err(error) => failures.push(format!("{group}: {error:#}")),
+        }
+    }
     report_groups(&loaded.candidate, &verified);
     println!("Receipts: {}", receipts.display());
-    result
+    ensure!(
+        failures.is_empty(),
+        "verification failed:\n{}",
+        failures.join("\n")
+    );
+    Ok(())
 }
 
 fn verify_loaded(
@@ -369,11 +379,19 @@ fn verify_loaded(
         .tempdir_in("/tmp")?;
     let result = (|| -> Result<()> {
         let checkout = work.path().join("recipe");
-        run(Command::new("git")
-            .args(["clone", "--quiet", "--no-hardlinks", "--no-checkout"])
+        run(anonymous_git()
+            .args([
+                "clone",
+                "--quiet",
+                "--no-hardlinks",
+                "--no-checkout",
+                "--template=",
+            ])
             .arg(root)
             .arg(&checkout))?;
-        git(&checkout, &["checkout", "--quiet", "--detach", &recipe])?;
+        run(anonymous_git()
+            .current_dir(&checkout)
+            .args(["checkout", "--quiet", "--detach", &recipe]))?;
         let built = work.path().join("output");
         let home = work.path().join("home");
         fs::create_dir(&home)?;

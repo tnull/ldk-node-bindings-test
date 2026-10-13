@@ -21,12 +21,41 @@ pub const JVM_NATIVE: [&str; 3] = [
     "jvm-darwin-x86_64.dylib",
     "jvm-linux-x86_64.so",
 ];
+pub fn host_groups(os: &str, arch: &str) -> Result<&'static [&'static str]> {
+    match (os, arch) {
+        ("linux", "x86_64") => Ok(&["generated", "linux-x86_64", "android", "jvm"]),
+        ("linux", "aarch64") => Ok(&["linux-aarch64"]),
+        ("macos", "aarch64") => Ok(&["darwin"]),
+        _ => bail!("unsupported verification host {os}-{arch}; use x86_64 Linux, aarch64 Linux, or Apple Silicon macOS"),
+    }
+}
+pub fn preparation_branch(branch: &str) -> bool {
+    branch.len() > 8
+        && branch.as_bytes()[..4].iter().all(u8::is_ascii_digit)
+        && branch.as_bytes()[4] == b'-'
+        && branch.as_bytes()[5..7].iter().all(u8::is_ascii_digit)
+        && branch.as_bytes()[7] == b'-'
+}
+
+pub fn release_branch(branch: &str) -> bool {
+    if branch == "main" || preparation_branch(branch) {
+        return true;
+    }
+    let parts: Vec<_> = branch.split('.').collect();
+    matches!(parts.as_slice(), [major, minor, "x"] if [major, minor].iter().all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())))
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Inputs {
     pub schema: u32,
     pub bindings_version: String,
     pub native: Native,
     pub groups: BTreeMap<String, Vec<String>>,
+    pub deployment_targets: DeploymentTargets,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DeploymentTargets {
+    pub swift_macos: String,
+    pub swift_ios: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Native {
@@ -177,6 +206,19 @@ pub fn load_inputs(root: &Path) -> Result<Inputs> {
     ensure!(inputs.schema == 1, "unsupported input schema");
     safe_name(&inputs.bindings_version)?;
     hex(&inputs.native.rev, 40)?;
+    for target in [
+        &inputs.deployment_targets.swift_macos,
+        &inputs.deployment_targets.swift_ios,
+    ] {
+        let parts: Vec<_> = target.split('.').collect();
+        ensure!(
+            (2..=3).contains(&parts.len())
+                && parts
+                    .iter()
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())),
+            "invalid Swift deployment target"
+        );
+    }
     ensure!(
         inputs.groups.keys().map(String::as_str).eq(GROUPS),
         "release inputs must declare all six groups"
@@ -286,6 +328,12 @@ pub fn validate_receipts(c: &Candidate, receipts: &[Receipt]) -> Result<()> {
         );
         ensure!(seen.insert(r.group.clone()), "duplicate receipt group");
         let inv = c.groups.get(&r.group).context("unknown receipt group")?;
+        let (os, arch) = r.host.split_once('-').context("invalid receipt host")?;
+        ensure!(
+            host_groups(os, arch)?.contains(&r.group.as_str()),
+            "receipt host cannot build group {}",
+            r.group
+        );
         ensure!(r.files == inv.files, "receipt files differ");
         ensure!(r.imports == inv.imports, "JVM imports differ in receipt");
     }
