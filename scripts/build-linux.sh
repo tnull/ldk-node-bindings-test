@@ -44,7 +44,7 @@ run_container run --rm --network none --read-only --tmpfs /tmp:exec \
     '
 # output is supplied by build-inner.sh.
 # shellcheck disable=SC2154
-if [[ $arch = x86_64 ]]; then cp "$CARGO_TARGET_DIR/release/libldk_node.so" "$output/jvm-linux-x86_64.so"; fi
+cp "$CARGO_TARGET_DIR/release/libldk_node.so" "$output/jvm-linux-$arch.so"
 source scripts/build-wheel.sh "$work/python" "$CARGO_TARGET_DIR/release-smaller/libldk_node.so" "manylinux_2_28_$arch" "$output"
 # Import inside manylinux with its oldest supported Python, outside Nix.
 run_container run --rm --network none --read-only --tmpfs /tmp:exec -v "$output:/wheels:ro" "$image" /bin/bash -euc '

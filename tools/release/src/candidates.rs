@@ -527,7 +527,10 @@ mod tests {
             host_groups("linux", "x86_64").unwrap(),
             ["generated", "linux-x86_64", "android", "jvm"]
         );
-        assert_eq!(host_groups("linux", "aarch64").unwrap(), ["linux-aarch64"]);
+        assert_eq!(
+            host_groups("linux", "aarch64").unwrap(),
+            ["linux-aarch64", "jvm"]
+        );
         assert_eq!(host_groups("macos", "aarch64").unwrap(), ["darwin"]);
         assert!(host_groups("macos", "x86_64").is_err());
         assert!(host_groups("windows", "x86_64").is_err());
