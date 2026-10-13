@@ -119,8 +119,33 @@ jobs:
           retention-days: 7
           overwrite: true
 
-  candidate:
+  jvm-aarch64:
     needs: [build, jvm]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.recipe_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-nix
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate
+      - name: Reproduce JVM package and load its native ARM library
+        shell: bash
+        run: |
+          test "$(uname -m)" = aarch64
+          scripts/build.sh --group jvm --output "$RUNNER_TEMP/output" \
+            --candidate "$RUNNER_TEMP/candidate"
+          while IFS= read -r file; do
+            cmp "$RUNNER_TEMP/output/$file" "$RUNNER_TEMP/candidate/$file"
+          done < <(jq -r '.groups.jvm[]' release.json)
+
+  candidate:
+    needs: [build, jvm, jvm-aarch64]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

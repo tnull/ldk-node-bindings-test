@@ -71,10 +71,10 @@ output belongs in disposable directories under `/tmp`.
 | --- | --- | --- |
 | `generated` | Linux x86_64 | Generated Kotlin, Python, Swift, and FFI sources |
 | `linux-x86_64` | Linux x86_64 + Docker | Python wheel and JVM Linux library |
-| `linux-aarch64` | Linux aarch64 + Docker | Python wheel |
+| `linux-aarch64` | Linux aarch64 + Docker | Python wheel and JVM Linux library |
 | `android` | Linux x86_64 | AAR and unsigned Maven publication files |
 | `darwin` | Mac arm64 + Xcode | Two Python wheels, two JVM libraries, Swift XCFramework ZIP |
-| `jvm` | Linux x86_64 | JAR with all three native libraries and unsigned Maven files |
+| `jvm` | Linux x86_64 or aarch64 | JAR with all four native libraries and unsigned Maven files |
 
 JVM assembly takes `--candidate DIR` containing the native outputs. Assembly
 verification records their hashes; the complete release also needs independent
@@ -112,7 +112,8 @@ Preparation pushes the reviewed recipe and starts
 [the candidate workflow](.github/workflows/candidate.yml). Linux x86_64,
 Linux aarch64, and Mac arm64 runners build the platform groups. A final job
 assembles JVM artifacts, validates all inventories, and creates a **public
-prerelease** with a unique tag:
+prerelease** after an ARM runner reproduces the JVM package and passes its
+native-loading test. Each candidate has a unique tag:
 
 ```text
 candidate-VERSION-RECIPE12-RUN_ID-ATTEMPT
@@ -157,7 +158,7 @@ the original commit is an ancestor of `main` or a maintenance branch. A squash
 merge does not preserve that ancestry, and a candidate tag alone is insufficient.
 
 Linux x86_64 verifies `generated`, `linux-x86_64`, `android`, and `jvm`; Linux
-aarch64 verifies `linux-aarch64`; Apple Silicon verifies `darwin`. To select one
+aarch64 verifies `linux-aarch64` and `jvm`; Apple Silicon verifies `darwin`. To select one
 group and a persistent result directory, use:
 
 ```bash
