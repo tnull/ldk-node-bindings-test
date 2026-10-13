@@ -10,6 +10,10 @@ for slice in ios-arm64 ios-arm64_x86_64-simulator macos-arm64_x86_64; do
         macos-*) key=LSMinimumSystemVersion; target=swift_macos;;
     esac
     expected=$(jq -r --arg target "$target" '.deployment_targets[$target]' "$manifest")
+    case "$slice" in ios-*) platform=iOS;; macos-*) platform=macOS;; esac
+    grep -Fq ".$platform(\"$expected\")" "$(dirname "$framework")/Package.swift" || {
+        echo "Package.swift deployment target for $platform must be $expected" >&2; exit 1;
+    }
     outer="/plist/dict/array/dict[key[.='LibraryIdentifier']/following-sibling::*[1][.='$slice']]"
     for scope in outer slice; do
         if [[ $scope = outer ]]; then

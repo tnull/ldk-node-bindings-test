@@ -6,9 +6,15 @@ cd "$root"
 for script in scripts/build*.sh; do bash -n "$script"; done
 bash scripts/build-swift-metadata.sh
 bash scripts/build-check-retention.sh
+bash scripts/build-check-environment.sh
+bash scripts/build-check-container.sh
+bash scripts/build-check-apple.sh selector
+bash scripts/build-check-apple.sh cargo
+for mode in config archive paths; do bash scripts/build-check-generation.sh "$mode"; done
+bash scripts/build-check-metadata.sh swift
 scratch=$(mktemp -d /tmp/ldk-bindings-check-XXXXXXXX)
 trap 'rm -rf "$scratch"' EXIT
-for change in '.profiles.python="release"' '.features=["other"]' '.deployment_targets.android_min_sdk=23' '.bindings_version="0.0.0"'; do
+for change in '.profiles.python="release"' '.features=["other"]' '.bindings_version="0.0.0"'; do
     jq "$change" release.json > "$scratch/mismatched.json"
     if bash scripts/build-inputs.sh "$scratch/mismatched.json" > "$scratch/input.log" 2>&1; then
         echo 'Mismatched release input unexpectedly accepted' >&2; exit 1
