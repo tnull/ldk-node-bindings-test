@@ -11,7 +11,7 @@ authors = [
 description = "A ready-to-go Lightning node library built using LDK and BDK."
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-APACHE", "LICENSE-MIT"]
-dynamic = ["readme"]
+readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Topic :: Software Development :: Libraries",
@@ -37,7 +37,5 @@ dev = ["requests"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/ldk_node"]
 exclude = ["src/ldk_node/test_ldk_node.py"]
-
-[tool.hatch.metadata.hooks.custom]
 
 [tool.hatch.build.hooks.custom]

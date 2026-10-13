@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Linux-compatible orchestration test; does not emulate Xcode or dyld.
 set -euo pipefail
-mode=${1:-selector}
 scratch=$(mktemp -d /tmp/ldk-apple-check-XXXXXXXX)
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/source/src" "$scratch/hostile/recipe/scripts" "$scratch/hostile/.cargo"
@@ -23,11 +22,9 @@ set +e
     work=$scratch
     uname() { if [[ $1 = -s ]]; then echo Darwin; else echo arm64; fi; }
     function /usr/bin/xcodebuild() {
-        if [[ $mode = selector ]]; then
-            [[ $DEVELOPER_DIR = "$LDK_XCODE_DEVELOPER_DIR" && ! -v SDKROOT && ! -v NIX_CFLAGS_COMPILE && ! -v NIX_LDFLAGS ]] || {
-                echo 'Apple tools still use the Nix SDK environment' >&2; return 1;
-            }
-        fi
+        [[ $DEVELOPER_DIR = "$LDK_XCODE_DEVELOPER_DIR" && ! -v SDKROOT && ! -v NIX_CFLAGS_COMPILE && ! -v NIX_LDFLAGS ]] || {
+            echo 'Apple tools still use the Nix SDK environment' >&2; return 1;
+        }
         printf 'Xcode 16.4\nBuild version 16F6\n'
     }
     function /usr/bin/xcrun() {

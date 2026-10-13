@@ -8,8 +8,7 @@ bash scripts/build-swift-metadata.sh
 bash scripts/build-check-retention.sh
 bash scripts/build-check-environment.sh
 bash scripts/build-check-container.sh
-bash scripts/build-check-apple.sh selector
-bash scripts/build-check-apple.sh cargo
+bash scripts/build-check-apple.sh
 for mode in config archive paths; do bash scripts/build-check-generation.sh "$mode"; done
 bash scripts/build-check-metadata.sh swift
 scratch=$(mktemp -d /tmp/ldk-bindings-check-XXXXXXXX)
