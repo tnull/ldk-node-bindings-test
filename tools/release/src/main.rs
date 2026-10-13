@@ -122,7 +122,7 @@ fn execute() -> Result<()> {
             sha256,
             group,
             output,
-        } => candidates::verify_candidate(&root, &id, &sha256, group.as_deref(), output.as_deref()),
+        } => candidates::verify_candidate(&id, &sha256, group.as_deref(), output.as_deref()),
         Commands::Collect {
             candidate,
             receipts,

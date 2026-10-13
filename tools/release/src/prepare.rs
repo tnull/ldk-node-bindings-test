@@ -45,11 +45,7 @@ pub fn prepare(root: &Path, repo: &str) -> Result<()> {
     load_inputs(root)?;
     let branch = git(root, &["symbolic-ref", "--short", "HEAD"])?;
     ensure!(
-        branch.len() > 8
-            && branch.as_bytes()[..4].iter().all(u8::is_ascii_digit)
-            && branch.as_bytes()[4] == b'-'
-            && branch.as_bytes()[5..7].iter().all(u8::is_ascii_digit)
-            && branch.as_bytes()[7] == b'-',
+        preparation_branch(&branch),
         "preparation requires a dated YYYY-MM- branch"
     );
     let state = root.join(".release/prepare.json");

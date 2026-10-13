@@ -132,6 +132,18 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn git(root: &Path, args: &[&str]) -> Result<String> {
+        output(
+            Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_COUNT", "0")
+                .env_remove("GIT_CONFIG_PARAMETERS"),
+        )
+    }
+
     #[test]
     fn input_identity_preserves_sorted_length_framing() {
         let directory = tempfile::tempdir().unwrap();

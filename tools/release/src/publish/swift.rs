@@ -1,5 +1,15 @@
 use super::*;
 
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+    command.args(["-c", "core.hooksPath=/dev/null"]);
+    command
+}
+
+fn git(root: &Path, args: &[&str]) -> Result<String> {
+    output(git_command().current_dir(root).args(args))
+}
+
 pub(super) fn publish(
     root: &Path,
     session: &mut Session<'_>,
@@ -44,6 +54,20 @@ pub(super) fn publish(
             "Swift publication endpoints differ from the resumable ledger"
         );
     }
+    let work = tempfile::Builder::new()
+        .prefix("bindings-swift-")
+        .tempdir_in("/tmp")?;
+    let tree = work.path().join("distribution");
+    run(git_command()
+        .args([
+            "-c",
+            "credential.helper=!gh auth git-credential",
+            "clone",
+            "--quiet",
+            &git_url,
+        ])
+        .arg(&tree))?;
+    let desired = distribution_files(root, session, &url, &zip)?;
     let public = remote_json(&format!(
         "https://api.github.com/repos/{repo}/releases/tags/{tag}"
     ))?;
@@ -64,6 +88,8 @@ pub(super) fn publish(
             remote.split_whitespace().next() == Some(recorded),
             "Swift tag identity differs"
         );
+        git(&tree, &["checkout", "--quiet", "--detach", recorded])?;
+        assert_distribution(&tree, &desired)?;
         return session.save("swift",json!({"status":"published","repo":repo,"git_url":git_url,"asset_base_url":asset_base,"commit":recorded}));
     }
     if prior.is_none() {
@@ -72,26 +98,12 @@ pub(super) fn publish(
             "Swift tag already exists; refusing to move it"
         );
     }
-    let work = tempfile::Builder::new()
-        .prefix("bindings-swift-")
-        .tempdir_in("/tmp")?;
-    let tree = work.path().join("distribution");
-    run(Command::new("git")
-        .args([
-            "-c",
-            "credential.helper=!gh auth git-credential",
-            "clone",
-            "--quiet",
-            &git_url,
-        ])
-        .arg(&tree))?;
     let month = output(Command::new("date").args(["-u", "+%Y-%m"]))?;
     let branch = prior
         .as_ref()
         .and_then(|p| p["branch"].as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| format!("{month}-swift-{version}"));
-    let desired = distribution_files(root, session, &url, &zip)?;
     let commit = if let Some(commit) = prior.as_ref().and_then(|p| p["commit"].as_str()) {
         git(&tree, &["checkout", "--quiet", "--detach", commit])?;
         assert_distribution(&tree, &desired)?;
@@ -106,7 +118,7 @@ pub(super) fn publish(
             assert_distribution(&tree, &desired)?;
             commit.to_owned()
         } else {
-            run(Command::new("git")
+            run(git_command()
                 .current_dir(&tree)
                 .args(["checkout", "--orphan", &branch]))?;
             // An orphan tag tree contains only distribution inputs; it never imports
@@ -126,17 +138,18 @@ pub(super) fn publish(
                 }
                 fs::write(&path, bytes)?;
             }
-            let mut add = Command::new("git");
+            let mut add = git_command();
             add.current_dir(&tree).arg("add").args(desired.keys());
             run(&mut add)?;
             let message = work.path().join("message");
             fs::write(&message,"Publish verified Swift package metadata\n\nSwift consumers need a version tag containing generated bindings and a\nchecksum for the independently reproduced framework.\n\nPublish the matching source, licenses, and provenance in the Swift\ndistribution repository before creating its immutable version tag.\n\nCo-Authored-By: HAL 9000\n")?;
-            run(Command::new("git")
+            run(git_command()
                 .current_dir(&tree)
                 .args(["commit", "--file"])
                 .arg(&message))?;
             let commit = git(&tree, &["rev-parse", "HEAD"])?;
-            run(Command::new("git").current_dir(&tree).args([
+            assert_distribution(&tree, &desired)?;
+            run(git_command().current_dir(&tree).args([
                 "-c",
                 "credential.helper=!gh auth git-credential",
                 "push",
@@ -235,7 +248,7 @@ pub(super) fn publish(
     session.save("swift",json!({"status":"draft","repo":repo,"git_url":git_url,"asset_base_url":asset_base,"commit":commit,"branch":branch}))?;
     let refs = git(&tree, &["ls-remote", "origin", &format!("refs/tags/{tag}")])?;
     if refs.is_empty() {
-        run(Command::new("git").current_dir(&tree).args([
+        run(git_command().current_dir(&tree).args([
             "-c",
             "credential.helper=!gh auth git-credential",
             "push",
@@ -281,7 +294,7 @@ fn distribution_files(
     files.insert("Sources/LDKNode/LDKNode.swift".into(), source.stdout);
     files.insert(
         "Package.swift".into(),
-        package(url, &zip.sha256).into_bytes(),
+        package(url, &zip.sha256, &load_inputs(root)?.deployment_targets).into_bytes(),
     );
     files.insert(
         "release-provenance.json".into(),
@@ -293,34 +306,58 @@ fn distribution_files(
     Ok(files)
 }
 fn assert_distribution(tree: &Path, desired: &BTreeMap<String, Vec<u8>>) -> Result<()> {
-    let tracked = git(tree, &["ls-files"])?;
+    let tracked = git(
+        tree,
+        &[
+            "ls-tree",
+            "-r",
+            "--format=%(objectmode) %(objecttype) %(path)",
+            "HEAD",
+        ],
+    )?;
     ensure!(
-        tracked.lines().eq(desired.keys().map(String::as_str)),
+        tracked
+            .lines()
+            .eq(desired.keys().map(|name| format!("100644 blob {name}"))),
         "existing Swift distribution branch contains different files"
     );
     for (name, bytes) in desired {
+        let blob = git_command()
+            .current_dir(tree)
+            .args(["cat-file", "blob", &format!("HEAD:{name}")])
+            .output()?;
         ensure!(
-            fs::symlink_metadata(tree.join(name))?.is_file()
-                && fs::read(tree.join(name))? == *bytes,
+            blob.status.success() && blob.stdout == *bytes,
             "existing Swift distribution content differs: {name}"
         );
     }
     Ok(())
 }
-fn package(url: &str, checksum: &str) -> String {
-    format!("// swift-tools-version: 5.5\nimport PackageDescription\n\nlet package = Package(\n    name: \"ldk-node\",\n    platforms: [.macOS(.v12), .iOS(.v15)],\n    products: [.library(name: \"LDKNode\", targets: [\"LDKNodeFFI\", \"LDKNode\"])],\n    targets: [\n        .target(name: \"LDKNode\", dependencies: [\"LDKNodeFFI\"]),\n        .binaryTarget(name: \"LDKNodeFFI\", url: \"{url}\", checksum: \"{checksum}\")\n    ]\n)\n")
+fn package(url: &str, checksum: &str, targets: &DeploymentTargets) -> String {
+    let DeploymentTargets {
+        swift_macos,
+        swift_ios,
+    } = targets;
+    format!("// swift-tools-version: 5.5\nimport PackageDescription\n\nlet package = Package(\n    name: \"ldk-node\",\n    platforms: [.macOS(\"{swift_macos}\"), .iOS(\"{swift_ios}\")],\n    products: [.library(name: \"LDKNode\", targets: [\"LDKNodeFFI\", \"LDKNode\"])],\n    targets: [\n        .target(name: \"LDKNode\", dependencies: [\"LDKNodeFFI\"]),\n        .binaryTarget(name: \"LDKNodeFFI\", url: \"{url}\", checksum: \"{checksum}\")\n    ]\n)\n")
 }
 #[cfg(test)]
 mod tests {
     #[test]
-    fn swift_metadata_preserves_v071_deployment_targets() {
-        let manifest = super::package("https://example.org/release.zip", "checksum");
+    fn swift_metadata_preserves_deployment_targets() {
+        let manifest = super::package(
+            "https://example.org/release.zip",
+            "checksum",
+            &super::DeploymentTargets {
+                swift_macos: "12.0".into(),
+                swift_ios: "15.0".into(),
+            },
+        );
         assert!(
-            manifest.contains(".iOS(.v15)"),
+            manifest.contains(".iOS(\"15.0\")"),
             "iOS 15 deployment minimum must be preserved"
         );
         assert!(
-            manifest.contains(".macOS(.v12)"),
+            manifest.contains(".macOS(\"12.0\")"),
             "macOS 12 deployment minimum must be preserved"
         );
     }

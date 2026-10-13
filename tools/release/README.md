@@ -28,8 +28,14 @@ checks that hash before checking out or executing candidate build code. It
 requires no GitHub account, PAT, or repository write access.
 
 The Rust command is `release verify-candidate ID SHA256`. It creates a separate
-checkout at the manifest's exact recipe commit; if the local clone lacks that
-commit, it fetches it anonymously from the public bindings repository. Your
+checkout at the manifest's exact recipe commit. It anonymously fetches complete
+official branch history into a fresh repository, then requires the recipe to be
+reachable from `main`, a numeric `MAJOR.MINOR.x` maintenance branch, or a dated
+`YYYY-MM-*` preparation branch. Fork commits and candidate tags alone are not
+accepted. Preserve an accepted branch containing historical recipe commits,
+including after squash merges. The separately trusted manifest hash binds the
+exact build code and candidate bytes; branch ancestry establishes the accepted
+repository provenance. Your
 current branch, tracked files, and untracked files are left unchanged. Candidate
 assets are downloaded and checked once, then each group is independently rebuilt
 from a fresh checkout using the existing verifier.
@@ -43,7 +49,8 @@ from a fresh checkout using the existing verifier.
 Use `--group GROUP` to verify one of your host's supported groups. The final
 report names verified and outstanding groups: one host does not establish full
 release coverage. A zero exit status means all selected groups matched; any
-download, build, or checksum failure returns a nonzero status. Linux wheel
+download, build, or checksum failure returns a nonzero status. A failed group
+does not prevent the remaining selected groups from running. Linux wheel
 groups need a working Docker or Podman daemon; Darwin needs the pinned full
 Xcode installation. Native Windows and Intel macOS hosts are not supported.
 
@@ -81,7 +88,8 @@ that work directory. The lower-level `verify` command also writes `failure.json`
 directly in its output directory; the simple entrypoint's layout is shown above.
 Receipts are claims from local independent rebuilds, not signatures or automatic
 trust decisions. A maintainer deliberately selects accepted receipts into the
-collection directory. Keep the resulting verified ledger outside that directory.
+collection directory. Collection rejects host/group combinations that the build
+recipes do not support. Keep the resulting verified ledger outside that directory.
 
 ## Local state and credentials
 
@@ -119,6 +127,11 @@ and must not be removed while a publisher is running. Use one ledger per candida
   script checks authenticated draft state on every retry, uploads a missing ZIP,
   and rejects an existing ZIP whose bytes differ instead of replacing it. The
   build recipe repository receives no Swift tags or source changes.
+  Git hooks are disabled for generated distribution operations. Before pushing
+  or resuming, the committed paths, regular-file modes, and exact blob bytes must
+  match the verified inputs; a Git filter that changes them causes a failure.
+  Local Git authentication, author identity, and signing settings are preserved.
+  Swift deployment minima come from the recipe's `deployment_targets`.
   `--swift-git-url` and `--swift-asset-base-url` configure source and asset
   endpoints; the current publication API adapter is GitHub. A future Forgejo
   endpoint requires a Forgejo API adapter before it can replace GitHub uploads.

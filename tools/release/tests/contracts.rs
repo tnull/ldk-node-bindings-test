@@ -6,10 +6,20 @@ use std::{
 };
 use tempfile::TempDir;
 
+fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
+    command
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_COUNT", "0")
+        .env_remove("GIT_CONFIG_PARAMETERS");
+    command
+}
+
 #[test]
 fn help_is_plain_and_available_outside_a_recipe() {
     let directory = tempfile::tempdir().unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_release"))
+    let result = command(env!("CARGO_BIN_EXE_release"))
         .current_dir(directory.path())
         .env("CLICOLOR_FORCE", "1")
         .env_remove("NO_COLOR")
@@ -29,7 +39,7 @@ struct Repo {
     sha: String,
 }
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_release"))
+    command(env!("CARGO_BIN_EXE_release"))
         .current_dir(dir)
         .args(args)
         .env_remove("CI")
@@ -38,11 +48,7 @@ fn run(dir: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
+    let out = command("git").current_dir(dir).args(args).output().unwrap();
     assert!(
         out.status.success(),
         "{}",
@@ -76,15 +82,13 @@ fn fixture() -> Repo {
     let groups = json!({"generated":["generated-sources.tar"],"linux-x86_64":["jvm-linux-x86_64.so","linux.whl"],"linux-aarch64":["arm.whl"],"android":["ldk-node-android-0.7.1.aar"],"darwin":["jvm-darwin-x86_64.dylib","jvm-darwin-aarch64.dylib","mac.whl","LDKNodeFFI.xcframework.zip"],"jvm":["ldk-node-jvm-0.7.1.jar"]});
     write(
         &dir.path().join("release.json"),
-        &json!({"schema":1,"bindings_version":"0.7.1","native":{"rev":"edc8916e289d39a4135b6eda66978a9f765396bb"},"groups":groups}),
+        &json!({"schema":1,"bindings_version":"0.7.1","native":{"rev":"edc8916e289d39a4135b6eda66978a9f765396bb"},"groups":groups,"deployment_targets":{"swift_macos":"13.2","swift_ios":"16.1"}}),
     );
     fs::write(dir.path().join("Cargo.lock"), "pinned").unwrap();
     git(dir.path(), &["add", "."]);
     git(
         dir.path(),
         &[
-            "-c",
-            "core.hooksPath=/dev/null",
             "-c",
             "user.name=Test",
             "-c",
@@ -161,9 +165,14 @@ fn build_candidate(r: &Repo) -> Value {
 fn receipts(r: &Repo, c: &Value) -> TempDir {
     let dir = tempfile::tempdir().unwrap();
     for (group, inv) in c["groups"].as_object().unwrap() {
+        let host = match group.as_str() {
+            "darwin" => "macos-aarch64",
+            "linux-aarch64" => "linux-aarch64",
+            _ => "linux-x86_64",
+        };
         write(
             &dir.path().join(format!("{group}.json")),
-            &json!({"schema":1,"candidate_id":c["id"],"recipe":c["recipe"],"inputs_sha256":c["inputs_sha256"],"group":group,"files":inv["files"],"imports":inv["imports"],"method":"independent-rebuild","host":"test"}),
+            &json!({"schema":1,"candidate_id":c["id"],"recipe":c["recipe"],"inputs_sha256":c["inputs_sha256"],"group":group,"files":inv["files"],"imports":inv["imports"],"method":"independent-rebuild","host":host}),
         );
     }
     assert!(r.candidate.path().is_dir());
@@ -192,6 +201,33 @@ fn candidate_and_complete_receipts_produce_ledger() {
     fs::remove_file(output).unwrap();
     assert_eq!(ledger["candidate_id"], c["id"]);
     assert_eq!(ledger["receipts"].as_array().unwrap().len(), 6);
+}
+
+#[test]
+fn collect_rejects_receipt_from_an_incompatible_host() {
+    let r = fixture();
+    let c = build_candidate(&r);
+    let accepted = receipts(&r, &c);
+    let path = accepted.path().join("darwin.json");
+    let mut receipt: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    receipt["host"] = json!("linux-x86_64");
+    write(&path, &receipt);
+    let output = tempfile::tempdir().unwrap();
+    fail(
+        run(
+            r.dir.path(),
+            &[
+                "collect",
+                "--candidate",
+                r.candidate.path().to_str().unwrap(),
+                "--receipts",
+                accepted.path().to_str().unwrap(),
+                "--output",
+                output.path().join("verified.json").to_str().unwrap(),
+            ],
+        ),
+        "receipt host cannot build group",
+    );
 }
 #[test]
 fn collector_rejects_missing_receipts_and_changed_bytes() {
@@ -357,7 +393,7 @@ fn publish_requires_local_explicit_candidate_confirmation() {
         ),
         "confirmation",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_release"))
+    let output = command(env!("CARGO_BIN_EXE_release"))
         .current_dir(r.dir.path())
         .args([
             "publish",
@@ -432,7 +468,7 @@ fn pypi_requires_identical_testpypi_files_before_upload() {
         &bin.path().join("uv"),
         "#!/bin/sh\necho 'MUST NOT UPLOAD' >&2\nexit 81\n",
     );
-    let out = Command::new(env!("CARGO_BIN_EXE_release"))
+    let out = command(env!("CARGO_BIN_EXE_release"))
         .current_dir(r.dir.path())
         .args([
             "publish",
@@ -473,8 +509,6 @@ fn verify_rebuilds_fresh_without_secrets_and_keeps_host_selectors() {
         r.dir.path(),
         &[
             "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
             "user.name=Test",
             "-c",
             "user.email=test@example.org",
@@ -486,7 +520,7 @@ fn verify_rebuilds_fresh_without_secrets_and_keeps_host_selectors() {
     r.sha = git(r.dir.path(), &["rev-parse", "HEAD"]);
     build_candidate(&r);
     let output = tempfile::tempdir().unwrap();
-    ok(Command::new(env!("CARGO_BIN_EXE_release"))
+    ok(command(env!("CARGO_BIN_EXE_release"))
         .current_dir(r.dir.path())
         .args([
             "verify",
@@ -554,7 +588,7 @@ printf 'test signature' > "$result"
 "##,
     );
     let invoke = || {
-        Command::new(env!("CARGO_BIN_EXE_release"))
+        command(env!("CARGO_BIN_EXE_release"))
             .current_dir(r.dir.path())
             .args([
                 "publish",
@@ -648,7 +682,7 @@ cp "$MOCK_CANDIDATE/${last##*/}" "$result"
 "##,
     );
     let invoke = || {
-        Command::new(env!("CARGO_BIN_EXE_release"))
+        command(env!("CARGO_BIN_EXE_release"))
             .current_dir(r.dir.path())
             .args(["prepare", "--repo", "lightningdevkit/ldk-node-bindings"])
             .env(
@@ -741,7 +775,7 @@ touch "$MOCK_UPLOADED"
 "##,
     );
     let invoke = || {
-        Command::new(env!("CARGO_BIN_EXE_release"))
+        command(env!("CARGO_BIN_EXE_release"))
             .current_dir(r.dir.path())
             .args([
                 "publish",
@@ -792,6 +826,18 @@ fn swift_publishes_distribution_only_and_preserves_recipe() {
 
 #[test]
 #[cfg(unix)]
+fn swift_ignores_hooks() {
+    swift_publication_scenario("hook");
+}
+
+#[test]
+#[cfg(unix)]
+fn swift_rejects_filter_changes_to_committed_bytes() {
+    swift_publication_scenario("filter");
+}
+
+#[test]
+#[cfg(unix)]
 fn swift_resumes_failed_draft_creation_and_missing_asset() {
     swift_publication_scenario("create_failure");
     swift_publication_scenario("upload_failure");
@@ -813,8 +859,6 @@ fn swift_publication_scenario(mode: &str) {
     git(
         r.dir.path(),
         &[
-            "-c",
-            "core.hooksPath=/dev/null",
             "-c",
             "user.name=Test",
             "-c",
@@ -858,6 +902,28 @@ fn swift_publication_scenario(mode: &str) {
     let remote = tempfile::tempdir().unwrap();
     git(remote.path(), &["init", "--bare"]);
     let bin = tempfile::tempdir().unwrap();
+    let git_config = bin.path().join("gitconfig");
+    fs::write(&git_config, "").unwrap();
+    if mode == "hook" {
+        fs::create_dir(bin.path().join("hooks")).unwrap();
+        executable(
+            &bin.path().join("hooks/pre-commit"),
+            "#!/bin/sh\nprintf 'hook corruption' > Package.swift\ngit add Package.swift\n",
+        );
+        fs::write(
+            &git_config,
+            format!(
+                "[core]\n hooksPath = {}\n",
+                bin.path().join("hooks").display()
+            ),
+        )
+        .unwrap();
+    }
+    if mode == "filter" {
+        let attributes = bin.path().join("attributes");
+        fs::write(&attributes, "Package.swift filter=corrupt\n").unwrap();
+        fs::write(&git_config, format!("[core]\n attributesFile = {}\n[filter \"corrupt\"]\n clean = printf 'filter corruption'\n", attributes.display())).unwrap();
+    }
     executable(&bin.path().join("curl"), "#!/bin/sh\nprintf '\\n404'\n");
     executable(
         &bin.path().join("gh"),
@@ -892,7 +958,7 @@ esac
 "##,
     );
     let invoke = || {
-        Command::new(env!("CARGO_BIN_EXE_release"))
+        command(env!("CARGO_BIN_EXE_release"))
             .current_dir(r.dir.path())
             .args([
                 "publish",
@@ -923,7 +989,15 @@ esac
             )
             .env("MOCK_LOG", bin.path().join("events"))
             .env("MOCK_CANDIDATE", r.candidate.path())
-            .env("MOCK_MODE", mode)
+            .env(
+                "MOCK_MODE",
+                if ["hook", "filter"].contains(&mode) {
+                    "none"
+                } else {
+                    mode
+                },
+            )
+            .env("GIT_CONFIG_GLOBAL", &git_config)
             .env("MOCK_DRAFT", bin.path().join("draft"))
             .env("MOCK_ASSET", bin.path().join("asset"))
             .env("MOCK_FAILURE", bin.path().join("failure"))
@@ -934,7 +1008,13 @@ esac
             .output()
             .unwrap()
     };
-    if mode != "none" {
+    if mode == "filter" {
+        fail(invoke(), "Swift distribution content differs");
+        assert!(git(remote.path(), &["for-each-ref"]).is_empty());
+        assert!(!bin.path().join("events").exists());
+        return;
+    }
+    if !["none", "hook"].contains(&mode) {
         fail(invoke(), "gh failed");
     }
     if mode == "changed_asset" {
@@ -961,6 +1041,11 @@ esac
     );
     assert!(git(r.dir.path(), &["tag", "--list", "v0.7.1"]).is_empty());
     assert_eq!(git(r.dir.path(), &["rev-parse", "HEAD"]), r.sha);
+    let package = git(remote.path(), &["show", "v0.7.1:Package.swift"]);
+    assert!(
+        package.contains(".macOS(\"13.2\")") && package.contains(".iOS(\"16.1\")"),
+        "Swift metadata must use the recipe deployment targets: {package}"
+    );
     let provenance: Value = serde_json::from_str(&git(
         remote.path(),
         &["show", "v0.7.1:release-provenance.json"],
@@ -1016,8 +1101,6 @@ fn failed_verification_preserves_rebuilt_and_expected_files() {
     git(
         r.dir.path(),
         &[
-            "-c",
-            "core.hooksPath=/dev/null",
             "-c",
             "user.name=Test",
             "-c",
@@ -1083,7 +1166,7 @@ fn publication_excludes_concurrent_destinations_and_releases_lock() {
     executable(&bin.path().join("curl"), "#!/bin/sh\nprintf '\\n404'\n");
     executable(&bin.path().join("uv"),"#!/bin/sh\ntouch \"$MOCK_ENTERED\"\nwhile [ ! -e \"$MOCK_RELEASE\" ]; do sleep 0.05; done\nexit 71\n");
     let make = |destination: &str| {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_release"));
+        let mut cmd = command(env!("CARGO_BIN_EXE_release"));
         cmd.current_dir(r.dir.path())
             .args([
                 "publish",
@@ -1156,8 +1239,6 @@ fn entry_fixture() -> Repo {
         r.dir.path(),
         &[
             "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
             "user.name=Test",
             "-c",
             "user.email=test@example.org",
@@ -1172,20 +1253,44 @@ fn entry_fixture() -> Repo {
 
 #[cfg(unix)]
 fn entry_run(r: &Repo, id: &str, sha: &str, output: &Path, group: Option<&str>) -> Output {
-    entry_run_with_fetch(r, id, sha, output, group, false)
-}
-
-#[cfg(unix)]
-fn entry_run_with_fetch(
-    r: &Repo,
-    id: &str,
-    sha: &str,
-    output: &Path,
-    group: Option<&str>,
-    fetch: bool,
-) -> Output {
     let bin = tempfile::tempdir().unwrap();
-    if fetch {
+    let official = tempfile::tempdir().unwrap();
+    git(official.path(), &["init", "--bare", "--quiet"]);
+    git(
+        official.path(),
+        &[
+            "fetch",
+            "--quiet",
+            r.dir.path().to_str().unwrap(),
+            "+refs/heads/*:refs/fixture/*",
+        ],
+    );
+    let branch = fs::read_to_string(r.candidate.path().join("official-branch"))
+        .unwrap_or_else(|_| "main".into());
+    let commit = fs::read_to_string(r.candidate.path().join("official-commit"))
+        .unwrap_or_else(|_| r.sha.clone());
+    if ["fork-only", "tag-only"].contains(&branch.as_str()) {
+        git(
+            official.path(),
+            &[
+                "update-ref",
+                "refs/heads/main",
+                &git(r.dir.path(), &["rev-parse", "HEAD^"]),
+            ],
+        );
+        if branch == "tag-only" {
+            git(
+                official.path(),
+                &["update-ref", &format!("refs/tags/{id}"), &r.sha],
+            );
+        }
+    } else {
+        git(
+            official.path(),
+            &["update-ref", &format!("refs/heads/{branch}"), &commit],
+        );
+    }
+    {
         let git_binary = Command::new("sh")
             .args(["-c", "command -v git"])
             .output()
@@ -1195,16 +1300,19 @@ fn entry_run_with_fetch(
             &format!(
                 r#"#!/bin/sh
 set -eu
+if [ "$1" = -c ]; then
+    [ "$2" = core.hooksPath=/dev/null ] || exit 90
+    shift 2
+fi
 case "$1" in
-  cat-file) [ -e "$MOCK_FETCHED" ] || exit 1;;
   fetch)
     [ -z "${{GH_TOKEN:-}}${{GITHUB_TOKEN:-}}${{GIT_CONFIG_PARAMETERS:-}}" ] || exit 91
     [ "$GIT_CONFIG_NOSYSTEM" = 1 ] && [ "$GIT_CONFIG_GLOBAL" = /dev/null ] && [ "$GIT_CONFIG_COUNT" = 0 ] && [ "$GIT_TERMINAL_PROMPT" = 0 ] || exit 92
-    [ "$*" = "fetch --quiet --no-tags --depth=1 https://github.com/lightningdevkit/ldk-node-bindings.git $MOCK_RECIPE" ] || exit 93
+    [ "$*" = "fetch --quiet --no-tags https://github.com/lightningdevkit/ldk-node-bindings.git +refs/heads/*:refs/remotes/reviewed/*" ] || exit 93
     touch "$MOCK_FETCHED"
-    exit 0;;
+    exec '{0}' fetch --quiet --no-tags "$MOCK_OFFICIAL" '+refs/heads/*:refs/remotes/reviewed/*';;
 esac
-exec '{}' "$@"
+exec '{0}' "$@"
 "#,
                 String::from_utf8(git_binary.stdout).unwrap().trim()
             ),
@@ -1225,7 +1333,7 @@ printf '%s\n' "$name" >> "$MOCK_DOWNLOADS"
 cp "$MOCK_CANDIDATE/$name" "$destination"
 "#,
     );
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_release"));
+    let mut cmd = command(env!("CARGO_BIN_EXE_release"));
     cmd.current_dir(r.dir.path())
         .args(["verify-candidate", id, sha, "--output"])
         .arg(output)
@@ -1239,7 +1347,7 @@ cp "$MOCK_CANDIDATE/$name" "$destination"
         )
         .env("MOCK_CANDIDATE", r.candidate.path())
         .env("MOCK_FETCHED", r.candidate.path().join("fetched"))
-        .env("MOCK_RECIPE", &r.sha)
+        .env("MOCK_OFFICIAL", official.path())
         .env("MOCK_DOWNLOADS", r.candidate.path().join("downloads"))
         .env("GH_TOKEN", "must-not-be-used")
         .env("GITHUB_TOKEN", "must-not-be-used");
@@ -1284,6 +1392,75 @@ fn entry_rejects_invalid_or_wrong_manifest_checksum_before_checkout() {
         fs::read_to_string(r.candidate.path().join("downloads")).unwrap(),
         "candidate.json\n"
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn entry_rejects_fork_tag_only_and_unapproved_branch_recipes() {
+    let r = entry_fixture();
+    let c = build_candidate(&r);
+    for branch in [
+        "fork-only",
+        "tag-only",
+        "unreviewed-feature",
+        "0.bad.x",
+        "2026-1-prepare",
+    ] {
+        let out = tempfile::tempdir().unwrap();
+        fs::write(r.candidate.path().join("official-branch"), branch).unwrap();
+        fail(
+            entry_run(
+                &r,
+                c["id"].as_str().unwrap(),
+                &manifest_sha(&r),
+                out.path(),
+                None,
+            ),
+            "recipe is not reachable from an official release branch",
+        );
+        assert!(!out.path().join("receipts").exists());
+        assert!(fs::read_to_string(r.candidate.path().join("downloads"))
+            .unwrap()
+            .lines()
+            .all(|name| name == "candidate.json"));
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn entry_accepts_official_release_branches_and_historical_ancestors() {
+    let r = entry_fixture();
+    let c = build_candidate(&r);
+    git(
+        r.dir.path(),
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.org",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Descendant",
+        ],
+    );
+    fs::write(
+        r.candidate.path().join("official-commit"),
+        git(r.dir.path(), &["rev-parse", "HEAD"]),
+    )
+    .unwrap();
+    for branch in ["main", "0.7.x", "2026-10-prepare"] {
+        let out = tempfile::tempdir().unwrap();
+        fs::write(r.candidate.path().join("official-branch"), branch).unwrap();
+        ok(entry_run(
+            &r,
+            c["id"].as_str().unwrap(),
+            &manifest_sha(&r),
+            out.path(),
+            None,
+        ));
+        assert!(out.path().join("receipts").is_dir());
+    }
 }
 
 #[test]
@@ -1389,13 +1566,12 @@ fn entry_supports_one_group_and_preserves_mismatch_diagnostics() {
     let r = entry_fixture();
     let mut c = build_candidate(&r);
     let out = tempfile::tempdir().unwrap();
-    ok(entry_run_with_fetch(
+    ok(entry_run(
         &r,
         c["id"].as_str().unwrap(),
         &manifest_sha(&r),
         out.path(),
         Some("generated"),
-        true,
     ));
     assert!(r.candidate.path().join("fetched").exists());
     assert_eq!(
@@ -1533,7 +1709,7 @@ fn entry_reports_completed_groups_when_a_later_group_fails() {
     assert!(work.join("output/linux.whl").is_file());
     fs::remove_dir_all(work).unwrap();
     assert!(
-        stdout.contains("Verified groups: generated. Outstanding groups: android, darwin, jvm, linux-aarch64, linux-x86_64"),
+        stdout.contains("Verified groups: generated, android, jvm. Outstanding groups: darwin, linux-aarch64, linux-x86_64"),
         "later failures must report completed and outstanding groups: {stdout}"
     );
     assert!(stdout.contains(&format!(
@@ -1544,6 +1720,6 @@ fn entry_reports_completed_groups_when_a_later_group_fails() {
     assert!(out.path().join("receipts/generated.receipt.json").is_file());
     assert_eq!(
         fs::read_dir(out.path().join("receipts")).unwrap().count(),
-        1
+        3
     );
 }

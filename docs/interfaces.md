@@ -52,8 +52,10 @@ Rust workspace exposes `release` via `nix run .#release -- COMMAND ...`.
   inventories into `candidate.json`; require all groups and identical inputs.
 - `verify-candidate ID MANIFEST_SHA256 [--group GROUP] [--output DIR]`:
   authenticate the public `candidate.json` bytes against the supplied SHA-256,
-  check out the exact recipe in a temporary clone, and independently rebuild
-  the supported host groups. The caller's checkout remains unchanged. Write
+  require recipe ancestry from official `main`, `MAJOR.MINOR.x`, or dated
+  preparation branches, then check out the exact recipe in a temporary clone
+  and independently rebuild the supported host groups. Continue after individual
+  group failures. The caller's checkout remains unchanged. Write
   receipts under the result directory and report partial coverage explicitly.
   `scripts/verify.sh` provides the same command through the pinned Nix CLI.
 - `verify --candidate URL_OR_DIR --group GROUP --output DIR`: anonymous download,
@@ -61,7 +63,7 @@ Rust workspace exposes `release` via `nix run .#release -- COMMAND ...`.
   coverage. Require the local clean recipe commit and input identity to match.
 - `collect --candidate URL_OR_DIR --receipts DIR --output FILE`: rehash actual
   candidate files, require all groups and accepted independent receipts,
-  validate JVM native dependencies, emit a verified ledger.
+  validate receipt hosts and JVM native dependencies, emit a verified ledger.
 - `publish --verified FILE --candidate URL_OR_DIR --destination DEST
   --confirm CANDIDATE_ID`: local-only final publication of verified bytes.
   Destinations: `testpypi`, `pypi`, `maven`, `swift`. Reject CI environments.
