@@ -503,7 +503,7 @@ fn pypi_requires_identical_testpypi_files_before_upload() {
 fn verify_rebuilds_fresh_without_secrets_and_keeps_host_selectors() {
     let mut r = fixture();
     fs::create_dir(r.dir.path().join("scripts")).unwrap();
-    executable(&r.dir.path().join("scripts/build.sh"),"#!/bin/sh\n[ \"$RELEASE_VERIFY\" = 1 ] || exit 91\n[ -z \"$GH_TOKEN$UV_PUBLISH_TOKEN$CENTRAL_TOKEN_PASSWORD\" ] || exit 92\n[ ! -e \"$CARGO_TARGET_DIR\" ] || exit 93\n[ \"$CONTAINER_ENGINE\" = podman ] || exit 94\n[ \"$DEVELOPER_DIR\" = /test-xcode ] || exit 95\nmkdir -p \"$4\"\nprintf 'payload \"generated-sources.tar\"' > \"$4/generated-sources.tar\"\n");
+    executable(&r.dir.path().join("scripts/build.sh"),"#!/bin/sh\n[ \"$RELEASE_VERIFY\" = 1 ] || exit 91\n[ -z \"$GH_TOKEN$UV_PUBLISH_TOKEN$CENTRAL_TOKEN_PASSWORD\" ] || exit 92\n[ ! -e \"$CARGO_TARGET_DIR\" ] || exit 93\n[ \"$CONTAINER_ENGINE\" = podman ] || exit 94\n[ \"$DEVELOPER_DIR\" = /test-xcode ] || exit 95\n[ \"$DOCKER_HOST\" = unix:///test-socket ] && [ \"$DOCKER_CONTEXT\" = test-context ] && [ \"$XDG_RUNTIME_DIR\" = /test-runtime ] || { echo 'container transport selectors missing' >&2; exit 96; }\nmkdir -p \"$4\"\nprintf 'payload \"generated-sources.tar\"' > \"$4/generated-sources.tar\"\n");
     git(r.dir.path(), &["add", "."]);
     git(
         r.dir.path(),
@@ -533,6 +533,9 @@ fn verify_rebuilds_fresh_without_secrets_and_keeps_host_selectors() {
         ])
         .env("CONTAINER_ENGINE", "podman")
         .env("DEVELOPER_DIR", "/test-xcode")
+        .env("DOCKER_HOST", "unix:///test-socket")
+        .env("DOCKER_CONTEXT", "test-context")
+        .env("XDG_RUNTIME_DIR", "/test-runtime")
         .env("GH_TOKEN", "dummy")
         .env("UV_PUBLISH_TOKEN", "dummy")
         .env("CENTRAL_TOKEN_PASSWORD", "dummy")
@@ -1354,7 +1357,51 @@ cp "$MOCK_CANDIDATE/$name" "$destination"
     if let Some(group) = group {
         cmd.args(["--group", group]);
     }
+    if r.candidate.path().join("inherit-repository").exists() {
+        cmd.env("GIT_DIR", r.dir.path().join(".git"))
+            .env("GIT_COMMON_DIR", r.dir.path().join(".git"))
+            .env("GIT_WORK_TREE", r.dir.path())
+            .env("GIT_INDEX_FILE", r.dir.path().join(".git/index"))
+            .env("GIT_OBJECT_DIRECTORY", r.dir.path().join(".git/objects"))
+            .env(
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+                r.dir.path().join(".git/objects"),
+            );
+    }
     cmd.output().unwrap()
+}
+
+#[test]
+#[cfg(unix)]
+fn entry_ignores_inherited_repository_locations() {
+    let r = entry_fixture();
+    let c = build_candidate(&r);
+    let refs = git(r.dir.path(), &["show-ref"]);
+    let status = git(r.dir.path(), &["status", "--porcelain"]);
+    let index = fs::read(r.dir.path().join(".git/index")).unwrap();
+    fs::write(r.candidate.path().join("inherit-repository"), "").unwrap();
+    let output = tempfile::tempdir().unwrap();
+    let result = entry_run(
+        &r,
+        c["id"].as_str().unwrap(),
+        &manifest_sha(&r),
+        output.path(),
+        None,
+    );
+    assert_eq!(
+        git(r.dir.path(), &["show-ref"]),
+        refs,
+        "verification must not change the caller's Git refs"
+    );
+    assert_eq!(git(r.dir.path(), &["status", "--porcelain"]), status);
+    assert_eq!(git(r.dir.path(), &["rev-parse", "HEAD"]), r.sha);
+    assert_eq!(fs::read(r.dir.path().join(".git/index")).unwrap(), index);
+    ok(result);
+    assert_eq!(
+        git(&output.path().join("recipe"), &["rev-parse", "HEAD"]),
+        r.sha
+    );
+    assert!(output.path().join("receipts").is_dir());
 }
 
 #[cfg(unix)]

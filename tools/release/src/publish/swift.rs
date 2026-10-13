@@ -1,7 +1,7 @@
 use super::*;
 
 fn git_command() -> Command {
-    let mut command = Command::new("git");
+    let mut command = crate::process::git_command();
     command.args(["-c", "core.hooksPath=/dev/null"]);
     command
 }
