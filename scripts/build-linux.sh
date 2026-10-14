@@ -13,13 +13,17 @@ command -v "$engine" >/dev/null || { echo 'Docker or CONTAINER_ENGINE=podman is 
 run_container() {
     PATH="$PATH:$(dirname "$engine"):/usr/bin:/bin:/usr/sbin:/sbin" "$engine" "$@"
 }
+user_namespace=()
+case "$(run_container --version)" in
+    *[Pp]odman*) user_namespace=(--userns=keep-id) ;;
+esac
 run_container pull "$image"
 # The container supplies GCC for C compilation and the linker driver/sysroot.
 # Rust 1.95 supplies rust-lld on x86_64; no Nix compiler wrapper is used.
 # work is supplied by build-inner.sh; quoted variables expand in the container.
 # shellcheck disable=SC2154,SC2016
 run_container run --rm --network none --read-only --tmpfs /tmp:exec \
-    --user "$(id -u):$(id -g)" \
+    --user "$(id -u):$(id -g)" "${user_namespace[@]}" \
     -v /nix/store:/nix/store:ro -v "$work:/work" \
     -v "$CARGO_TARGET_DIR:/tmp/cargo-target" \
     -e "LDK_RUST=$LDK_RUST" -e SOURCE_DATE_EPOCH \
