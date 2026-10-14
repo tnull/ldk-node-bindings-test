@@ -30,6 +30,11 @@ inputs. Do not update them while building or verifying a candidate.
 
 Linux wheel builds also need a working Docker daemon, or Podman selected with
 `CONTAINER_ENGINE=podman`, to run the pinned manylinux images in `release.json`.
+On Fedora with packaged Nix, install `nix-daemon`, start it with
+`sudo systemctl enable --now nix-daemon`, and set `NIX_REMOTE=daemon` if Nix
+tries to write to the system store directly. Run verification as your normal
+user. Linux build and wheel-test containers disable SELinux label separation
+for their system-store mounts; host-wide SELinux settings and labels stay intact.
 Apple builds and verification run on an **Apple Silicon Mac** with full
 **Xcode 16.4 (16F6)**, its macOS 15.5 and iOS/simulator 18.5 SDKs, and the Xcode
 license accepted. Select that installation with `xcode-select`, or set:

@@ -11,6 +11,11 @@ command -v "$engine" >/dev/null || { echo 'Docker or CONTAINER_ENGINE=podman is 
 # Host clients may need helpers such as newuidmap or credential helpers. Keep
 # these host search paths scoped to the container client, outside compilation.
 run_container() {
+    if [[ $1 = run ]]; then
+        shift
+        # Mount the system Nix store without changing its SELinux labels.
+        set -- run --security-opt label=disable "$@"
+    fi
     PATH="$PATH:$(dirname "$engine"):/usr/bin:/bin:/usr/sbin:/sbin" "$engine" "$@"
 }
 user_namespace=()
