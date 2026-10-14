@@ -27,13 +27,24 @@ The script runs the pinned Nix release tool, downloads the public manifest, and
 checks that hash before checking out or executing candidate build code. It
 requires no GitHub account, PAT, or repository write access.
 
-The Rust command is `release verify-candidate ID SHA256`. It creates a separate
-checkout at the manifest's exact recipe commit. It anonymously fetches complete
-official branch history into a fresh repository, then requires the recipe to be
-reachable from `main`, a numeric `MAJOR.MINOR.x` maintenance branch, or a dated
-`YYYY-MM-*` preparation branch. Fork commits and candidate tags alone are not
-accepted. Preserve an accepted branch containing historical recipe commits,
-including after squash merges. The separately trusted manifest hash binds the
+The Rust command is `release verify-candidate ID SHA256`. Both commands default
+to `lightningdevkit/ldk-node-bindings`. For a candidate in another public
+repository, explicitly select the trusted repository:
+
+```sh
+./scripts/verify.sh candidate-VERSION-RECIPE12-RUN_ID-ATTEMPT SHA256 --repo OWNER/REPO
+```
+
+`--repo` selects both candidate asset downloads and the repository whose branch
+history establishes recipe provenance. It is never inferred from the manifest.
+The verifier creates a separate checkout at the manifest's exact recipe commit.
+It anonymously fetches complete branch history from the selected repository
+into a fresh repository, then requires the recipe to be reachable from `main`,
+a numeric `MAJOR.MINOR.x` maintenance branch, or a dated
+`YYYY-MM-*` preparation branch. Commits found only in another repository or
+candidate tags alone are not accepted. Preserve an accepted branch containing
+historical recipe commits, including after squash merges. The separately trusted
+manifest hash binds the
 exact build code and candidate bytes; branch ancestry establishes the accepted
 repository provenance. Your
 current branch, tracked files, and untracked files are left unchanged. Candidate
