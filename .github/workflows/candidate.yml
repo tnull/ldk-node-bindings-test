@@ -182,7 +182,7 @@ jobs:
           the verification commands in the README at that recipe commit.
           SHA-256 of candidate.json: $manifest_sha256
 
-          ./scripts/verify.sh $candidate_id $manifest_sha256
+          ./scripts/verify.sh $candidate_id $manifest_sha256 --repo "$GITHUB_REPOSITORY"
 
           Checksums record transport integrity; independent receipts are
           required before a maintainer can publish these bytes locally.

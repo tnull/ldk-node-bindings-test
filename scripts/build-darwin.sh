@@ -26,7 +26,9 @@ export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/usr/bin/clang
 export CARGO_TARGET_X86_64_APPLE_IOS_LINKER=/usr/bin/clang
 export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/usr/bin/clang
 swift_flags=$RUSTFLAGS
-export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,-install_name,@rpath/libldk_node.dylib"
+# Omit debug maps before the linker hashes its UUID. Rust strips them later,
+# after temporary object paths have already affected the library's identity.
+export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,-S -C link-arg=-Wl,-install_name,@rpath/libldk_node.dylib"
 check_dylib() {
     local library=$1
     /usr/bin/otool -l "$library" | grep 'cmd LC_UUID' >/dev/null || {
