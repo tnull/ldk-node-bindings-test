@@ -18,7 +18,14 @@ The workflow anonymously fetches its exact commit, then calls
 `scripts/verify.sh ID SHA --repo "$GITHUB_REPOSITORY" --group GROUP`.
 The verifier authenticates the manifest and fetches its pinned recipe from the
 public repository. Downloads and rebuilds receive no GitHub token or PAT, and
-the workflow grants no repository permissions.
+the workflow grants no repository permissions. The Nix installer receives a
+final empty `access-tokens` setting before starting its daemon; the workflow
+also removes the install action's overridden token from the configuration file
+and checks that Nix's effective token map is empty without logging its contents.
+
+These builds and rebuilds use the same hosted provider. Their receipts are
+smoke-test evidence, not external release qualification or a decision to trust
+the candidate for publication.
 
 Each group uses a fresh runner and its own empty verification directory:
 

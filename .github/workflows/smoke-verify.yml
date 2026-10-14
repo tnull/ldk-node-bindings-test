@@ -81,7 +81,26 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
           test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
-      - uses: ./.github/actions/setup-nix
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.35.2/install
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            always-allow-substitutes = false
+            access-tokens =
+      - name: Check anonymous Nix bootstrap
+        shell: bash
+        run: |
+          test "$(nix --version)" = 'nix (Nix) 2.35.2'
+          # The final blank setting applies before the installer starts the daemon.
+          nix config show --json | jq -e '.["access-tokens"].value == {}' >/dev/null
+          # Remove the install action's overridden token from the file as well.
+          awk '!/^[[:space:]]*(extra-)?access-tokens[[:space:]]*=/;
+            END { print "access-tokens =" }' /etc/nix/nix.conf \
+            > "$RUNNER_TEMP/anonymous-nix.conf"
+          sudo install -m 644 "$RUNNER_TEMP/anonymous-nix.conf" /etc/nix/nix.conf
+          nix config show --json | jq -e '.["access-tokens"].value == {}' >/dev/null
       - name: Reproduce the public candidate anonymously
         env:
           CANDIDATE_ID: ${{ inputs.candidate_id }}
