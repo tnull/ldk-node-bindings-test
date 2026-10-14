@@ -668,8 +668,11 @@ exec '{}' "$@"
 case "$1 $2" in
   'run list') if [ -e "$MOCK_DISPATCH" ]; then printf '[{"databaseId":123,"headSha":"%s","displayTitle":"candidate %s"}]' "$MOCK_RECIPE" "$MOCK_RECIPE"; else printf '[]'; fi;;
   'workflow run') touch "$MOCK_DISPATCH"; printf 'dispatch\n' >> "$MOCK_LOG";;
-  'run watch') exit 0;;
-  'api repos/lightningdevkit/ldk-node-bindings/actions/runs/123') printf '{"head_sha":"%s","conclusion":"success","run_attempt":1}' "$MOCK_RECIPE";;
+  'run watch') echo 'run watch does not support fine-grained PATs' >&2; exit 98;;
+  'api repos/lightningdevkit/ldk-node-bindings/actions/runs/123')
+    if [ -e "$MOCK_RESULT" ]; then cat "$MOCK_RESULT"; else
+      printf '{"head_sha":"%s","status":"completed","conclusion":"success","run_attempt":1}' "$MOCK_RECIPE"
+    fi;;
   *) echo "unexpected gh call $*" >&2; exit 97;;
 esac
 "##,
@@ -699,6 +702,7 @@ cp "$MOCK_CANDIDATE/${last##*/}" "$result"
             .env("MOCK_LOG", bin.path().join("events"))
             .env("MOCK_DISPATCH", bin.path().join("dispatched"))
             .env("MOCK_RECIPE", &r.sha)
+            .env("MOCK_RESULT", bin.path().join("result.json"))
             .env("MOCK_CANDIDATE", r.candidate.path())
             .output()
             .unwrap()
@@ -728,6 +732,34 @@ cp "$MOCK_CANDIDATE/${last##*/}" "$result"
             .unwrap();
     assert_eq!(ledger["candidate_id"], candidate["id"]);
     assert_eq!(ledger["phase"], "downloaded");
+    for (head, conclusion, expected) in [
+        (
+            r.sha.as_str(),
+            "failure",
+            "workflow run 123 concluded failure",
+        ),
+        (
+            r.sha.as_str(),
+            "cancelled",
+            "workflow run 123 concluded cancelled",
+        ),
+        (
+            "wrong-head",
+            "success",
+            "workflow head does not match preparation",
+        ),
+    ] {
+        write(
+            &bin.path().join("result.json"),
+            &json!({"head_sha":head,"status":"completed","conclusion":conclusion,"run_attempt":1}),
+        );
+        fail(invoke(), expected);
+    }
+    fs::remove_file(bin.path().join("result.json")).unwrap();
+    assert_eq!(
+        fs::read_to_string(bin.path().join("events")).unwrap(),
+        "push\ndispatch\n"
+    );
     fs::write(cache.join("linux.whl"), b"changed cache").unwrap();
     fail(invoke(), "cached candidate differs");
     assert_eq!(fs::read(cache.join("linux.whl")).unwrap(), b"changed cache");

@@ -94,7 +94,9 @@ recipes do not support. Keep the resulting verified ledger outside that director
 ## Local state and credentials
 
 Preparation saves `.release/prepare.json` before dispatch and records the exact
-run before watching it. It downloads public candidates to `.release/candidates`.
+run before polling its status through the Actions API every five seconds. This
+supports fine-grained PATs with Actions read access for polling; dispatch still
+requires Actions write access. It downloads public candidates to `.release/candidates`.
 An ambiguous dispatch is reconciled against the recorded pre-dispatch run IDs;
 it never silently dispatches a replacement. Preparation cannot publish packages.
 Candidate caches are assembled and checked in a sibling temporary directory,
