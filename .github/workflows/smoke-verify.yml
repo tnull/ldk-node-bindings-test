@@ -166,7 +166,9 @@ jobs:
           TOML
           cat > "$scratch/rust-fixture/lib.rs" <<'RUST'
           #[no_mangle]
-          pub extern "C" fn uuid_probe() -> u32 { 42 }
+          pub extern "C" fn uuid_probe() -> usize {
+              std::env::var("LDK_UUID_PROBE").unwrap_or_default().len()
+          }
           RUST
           printf 'Disposable Cargo fixture for Darwin UUID diagnostics.\n' > "$scratch/rust-fixture/README.md"
           cp -R "$scratch/rust-fixture" "$evidence/rust-fixture"
@@ -186,10 +188,13 @@ jobs:
           CLANG
           chmod +x "$scratch/clang-capture"
           rust_probe() {
-            local label=$1 directory=$2 probe_home=$3 mode=$4 profile=$5 reference=$6 extra=$7
+            local label="$rust_target-$1" directory=$2 probe_home=$3 mode=$4 profile=$5
+            local reference="$rust_target-$6" extra=$7
             mkdir -p "$directory/source"
             if [[ $extra = oso-prefix ]]; then
               extra="-C link-arg=-Wl,-oso_prefix,$(cd "$directory" && pwd -P)/"
+            elif [[ $extra = oso-lexical ]]; then
+              extra="-C link-arg=-Wl,-oso_prefix,$directory/"
             fi
             cp "$scratch/rust-fixture/"* "$directory/source/"
             # Fresh objects for every invocation, including repeated-path probes.
@@ -201,28 +206,37 @@ jobs:
                 LDK_UUID_CAPTURE="$evidence/$label" \
                 RUSTC="$rust/bin/rustc" \
                 RUSTFLAGS="--remap-path-prefix=$directory=/build -C debuginfo=0 -C linker=$scratch/clang-capture -C link-arg=-Wl,-install_name,@rpath/libuuid_probe.dylib $extra" \
-                "$rust/bin/cargo" build --offline --verbose --profile "$profile" --target aarch64-apple-darwin
+                "$rust/bin/cargo" build --offline --verbose --profile "$profile" --target "$rust_target"
             )
-            capture "$label" "$directory/cargo-target/aarch64-apple-darwin/$profile/libuuid_probe.dylib" "$reference"
+            capture "$label" "$directory/cargo-target/$rust_target/$profile/libuuid_probe.dylib" "$reference"
             capture "$label-prestrip" "$evidence/$label.prestrip.dylib" "$reference-prestrip"
           }
-          rust_probe rust-baseline "$scratch/rust-shallow" "$original_home" normal release rust-baseline ''
-          rust_probe rust-repeat "$scratch/rust-shallow" "$original_home" normal release rust-baseline ''
-          rust_probe rust-same-length "$scratch/rust-renamed" "$original_home" normal release rust-baseline ''
-          rust_probe rust-nested "$scratch/nested/one/two/rust" "$original_home" normal release rust-baseline ''
-          rust_probe rust-fresh-home "$scratch/rust-shallow" "$fresh_home" normal release rust-baseline ''
-          rust_probe rust-clean "$scratch/rust-shallow" "$original_home" clean release rust-baseline ''
-          rust_probe rust-clean-nested-home "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-baseline ''
-          rust_probe rust-reproducible "$scratch/rust-shallow" "$original_home" normal release rust-baseline '-C link-arg=-Wl,-reproducible'
-          rust_probe rust-reproducible-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-reproducible '-C link-arg=-Wl,-reproducible'
-          rust_probe rust-linker-strip "$scratch/rust-shallow" "$original_home" normal release rust-baseline '-C link-arg=-Wl,-S'
-          rust_probe rust-linker-strip-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-linker-strip '-C link-arg=-Wl,-S'
-          rust_probe rust-oso-prefix "$scratch/rust-shallow" "$original_home" normal release rust-baseline oso-prefix
-          rust_probe rust-oso-prefix-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-oso-prefix oso-prefix
-          rust_probe rust-smaller "$scratch/rust-shallow" "$original_home" normal release-smaller rust-smaller ''
-          rust_probe rust-smaller-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release-smaller rust-smaller ''
-          rust_probe rust-smaller-reproducible "$scratch/rust-shallow" "$original_home" normal release-smaller rust-smaller '-C link-arg=-Wl,-reproducible'
-          rust_probe rust-smaller-reproducible-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release-smaller rust-smaller-reproducible '-C link-arg=-Wl,-reproducible'
+          for rust_target in aarch64-apple-darwin x86_64-apple-darwin; do
+            case "$rust_target" in
+              aarch64-*) MACOSX_DEPLOYMENT_TARGET=$(jq -r .deployment_targets.python_macos_arm64 release.json);;
+              x86_64-*) MACOSX_DEPLOYMENT_TARGET=$(jq -r .deployment_targets.python_macos_x86_64 release.json);;
+            esac
+            for profile in release release-smaller; do
+              baseline="$profile-baseline"
+              rust_probe "$baseline" "$scratch/rust-shallow" "$original_home" normal "$profile" "$baseline" ''
+              rust_probe "$profile-repeat" "$scratch/rust-shallow" "$original_home" normal "$profile" "$baseline" ''
+              rust_probe "$profile-same-length" "$scratch/rust-renamed" "$original_home" normal "$profile" "$baseline" ''
+              rust_probe "$profile-nested" "$scratch/nested/one/two/rust" "$original_home" normal "$profile" "$baseline" ''
+              rust_probe "$profile-fresh-home" "$scratch/rust-shallow" "$fresh_home" normal "$profile" "$baseline" ''
+              rust_probe "$profile-clean" "$scratch/rust-shallow" "$original_home" clean "$profile" "$baseline" ''
+              rust_probe "$profile-clean-nested-home" "$scratch/nested/one/two/rust" "$fresh_home" clean "$profile" "$baseline" ''
+              for variant in reproducible linker-strip oso-prefix oso-lexical; do
+                case "$variant" in
+                  reproducible) extra='-C link-arg=-Wl,-reproducible';;
+                  linker-strip) extra='-C link-arg=-Wl,-S';;
+                  oso-prefix) extra=oso-prefix;;
+                  oso-lexical) extra=oso-lexical;;
+                esac
+                rust_probe "$profile-$variant" "$scratch/rust-shallow" "$original_home" normal "$profile" "$baseline" "$extra"
+                rust_probe "$profile-$variant-nested" "$scratch/nested/one/two/rust" "$fresh_home" clean "$profile" "$profile-$variant" "$extra"
+              done
+            done
+          done
           cat "$evidence/results.tsv" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
