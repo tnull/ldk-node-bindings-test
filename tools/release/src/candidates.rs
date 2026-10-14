@@ -238,9 +238,11 @@ fn anonymous_git() -> Command {
 pub fn verify_candidate(
     id: &str,
     sha256: &str,
+    repo: &str,
     group: Option<&str>,
     output: Option<&Path>,
 ) -> Result<()> {
+    crate::prepare::validate_repo(repo)?;
     safe_name(id)?;
     ensure!(
         id.starts_with("candidate-"),
@@ -273,8 +275,7 @@ pub fn verify_candidate(
     eprintln!("Verification files and diagnostics: {}", output.display());
     let dir = output.join("candidate");
     fs::create_dir(&dir)?;
-    let base =
-        format!("https://github.com/lightningdevkit/ldk-node-bindings/releases/download/{id}");
+    let base = format!("https://github.com/{repo}/releases/download/{id}");
     let manifest = dir.join("candidate.json");
     download(&format!("{base}/candidate.json"), &manifest)?;
     ensure!(
@@ -287,7 +288,7 @@ pub fn verify_candidate(
 
     let checkout = output.join("recipe");
     // Begin with no local refs or shallow boundaries. Fetch branch history from
-    // the official repository, never an arbitrary SHA or candidate tag.
+    // the explicitly trusted repository, never an arbitrary SHA or candidate tag.
     run(anonymous_git()
         .args(["init", "--quiet", "--template="])
         .arg(&checkout))?;
@@ -295,7 +296,7 @@ pub fn verify_candidate(
         "fetch",
         "--quiet",
         "--no-tags",
-        "https://github.com/lightningdevkit/ldk-node-bindings.git",
+        &format!("https://github.com/{repo}.git"),
         "+refs/heads/*:refs/remotes/reviewed/*",
     ]))?;
     let containing = anonymous_git()

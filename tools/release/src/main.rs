@@ -55,10 +55,13 @@ enum Commands {
     },
     /// Authenticate a public candidate and rebuild the groups supported by this host.
     VerifyCandidate {
-        /// Public candidate release tag in lightningdevkit/ldk-node-bindings.
+        /// Public candidate release tag in the selected repository.
         id: String,
         /// Expected SHA-256 of the exact candidate.json bytes.
         sha256: String,
+        /// Repository trusted for both candidate assets and recipe branch history.
+        #[arg(long, default_value = "lightningdevkit/ldk-node-bindings")]
+        repo: String,
         /// Rebuild just this supported group instead of all host groups.
         #[arg(long)]
         group: Option<String>,
@@ -120,9 +123,10 @@ fn execute() -> Result<()> {
         Commands::VerifyCandidate {
             id,
             sha256,
+            repo,
             group,
             output,
-        } => candidates::verify_candidate(&id, &sha256, group.as_deref(), output.as_deref()),
+        } => candidates::verify_candidate(&id, &sha256, &repo, group.as_deref(), output.as_deref()),
         Commands::Collect {
             candidate,
             receipts,
