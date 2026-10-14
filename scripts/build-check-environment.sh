@@ -28,7 +28,7 @@ done
 }
 [[ ${RELEASE_VERIFY:-} = 1 && ${CARGO_TARGET_DIR:-} = /tmp/verification/cargo-target ]]
 [[ ${DOCKER_HOST:-} = unix:///tmp/test-docker.sock && ${DOCKER_CONTEXT:-} = test-context && ${XDG_RUNTIME_DIR:-} = /tmp/test-runtime ]]
-[[ ${NIX_REMOTE:-} = local && -n ${NIX_SSL_CERT_FILE:-} && -n ${SSL_CERT_FILE:-} ]] || {
+[[ ${NIX_REMOTE:-} = auto && -n ${NIX_SSL_CERT_FILE:-} && -n ${SSL_CERT_FILE:-} ]] || {
     echo 'Nix store or TLS selectors were dropped' >&2; exit 1;
 }
 PROBE
@@ -38,7 +38,7 @@ RUSTC_WRAPPER=/unwanted/cache CARGO_ENCODED_RUSTFLAGS=unwanted \
     CFLAGS_aarch64_linux_android=unwanted RELEASE_VERIFY=1 \
     CARGO_TARGET_DIR=/tmp/verification/cargo-target \
     DOCKER_HOST=unix:///tmp/test-docker.sock DOCKER_CONTEXT=test-context XDG_RUNTIME_DIR=/tmp/test-runtime \
-    NIX_REMOTE=local NIX_SSL_CERT_FILE="${NIX_SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}" \
+    NIX_REMOTE=auto NIX_SSL_CERT_FILE="${NIX_SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}" \
     SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}" \
     DEVELOPER_DIR=/Applications/ChosenXcode.app/Contents/Developer \
     bash "$scratch/scripts/build.sh"

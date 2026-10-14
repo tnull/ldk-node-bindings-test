@@ -10,7 +10,7 @@ bash scripts/build-check-environment.sh
 bash scripts/build-check-container.sh
 bash scripts/build-check-apple.sh
 for mode in config archive paths; do bash scripts/build-check-generation.sh "$mode"; done
-bash scripts/build-check-metadata.sh swift
+for mode in swift android; do bash scripts/build-check-metadata.sh "$mode"; done
 scratch=$(mktemp -d /tmp/ldk-bindings-check-XXXXXXXX)
 trap 'rm -rf "$scratch"' EXIT
 for change in '.profiles.python="release"' '.features=["other"]' '.bindings_version="0.0.0"'; do
