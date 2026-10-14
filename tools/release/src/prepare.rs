@@ -31,6 +31,37 @@ fn runs(repo: &str) -> Result<Vec<Value>> {
         "databaseId,headSha,displayTitle",
     ]))?)?)
 }
+fn poll_run(
+    id: u64,
+    recipe: &str,
+    mut fetch: impl FnMut() -> Result<Value>,
+    mut wait: impl FnMut(),
+) -> Result<Value> {
+    let mut previous_status = String::new();
+    loop {
+        let run = fetch()?;
+        ensure!(
+            run["head_sha"].as_str() == Some(recipe),
+            "workflow head does not match preparation"
+        );
+        let status = run["status"].as_str().context("missing workflow status")?;
+        if status != previous_status {
+            eprintln!("Workflow run {id}: {status}");
+            previous_status = status.to_owned();
+        }
+        if status == "completed" {
+            let conclusion = run["conclusion"]
+                .as_str()
+                .context("missing workflow conclusion")?;
+            ensure!(
+                conclusion == "success",
+                "workflow run {id} concluded {conclusion}"
+            );
+            return Ok(run);
+        }
+        wait();
+    }
+}
 pub fn validate_repo(repo: &str) -> Result<()> {
     let parts: Vec<_> = repo.split('/').collect();
     ensure!(parts.len() == 2, "repository must be OWNER/REPO");
@@ -39,6 +70,7 @@ pub fn validate_repo(repo: &str) -> Result<()> {
     }
     Ok(())
 }
+
 pub fn prepare(root: &Path, repo: &str) -> Result<()> {
     validate_repo(repo)?;
     let recipe = clean(root)?;
@@ -128,21 +160,17 @@ pub fn prepare(root: &Path, repo: &str) -> Result<()> {
     let id = ledger.run_id.context(
         "dispatch outcome unknown; resume prepare to reconcile, do not dispatch another run",
     )?;
-    run(Command::new("gh").args([
-        "run",
-        "watch",
-        &id.to_string(),
-        "--repo",
-        repo,
-        "--exit-status",
-    ]))?;
-    let run: Value = serde_json::from_str(&output(
-        Command::new("gh").args(["api", &format!("repos/{repo}/actions/runs/{id}")]),
-    )?)?;
-    ensure!(
-        run["head_sha"].as_str() == Some(&recipe) && run["conclusion"].as_str() == Some("success"),
-        "workflow result does not match preparation"
-    );
+    let run = poll_run(
+        id,
+        &recipe,
+        || {
+            Ok(serde_json::from_str(&output(Command::new("gh").args([
+                "api",
+                &format!("repos/{repo}/actions/runs/{id}"),
+            ]))?)?)
+        },
+        || std::thread::sleep(Duration::from_secs(5)),
+    )?;
     let attempt = run["run_attempt"].as_u64().context("missing run attempt")?;
     let inputs = load_inputs(root)?;
     let candidate_id = format!(
@@ -225,4 +253,45 @@ pub fn prepare(root: &Path, repo: &str) -> Result<()> {
         bail!("preparation incomplete");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn polling_waits_for_completion_and_uses_final_attempt() {
+        let mut statuses = [
+            json!({"head_sha":"recipe","status":"queued","conclusion":null}),
+            json!({"head_sha":"recipe","status":"in_progress","conclusion":null}),
+            json!({"head_sha":"recipe","status":"completed","conclusion":"success","run_attempt":2}),
+        ]
+        .into_iter();
+        let mut waits = 0;
+        let result = poll_run(
+            123,
+            "recipe",
+            || Ok(statuses.next().expect("no extra poll after completion")),
+            || waits += 1,
+        )
+        .unwrap();
+        assert_eq!(waits, 2);
+        assert_eq!(result["run_attempt"], 2);
+        assert!(statuses.next().is_none());
+    }
+
+    #[test]
+    fn polling_rejects_a_different_head_before_waiting() {
+        let error = poll_run(
+            123,
+            "recipe",
+            || Ok(json!({"head_sha":"other","status":"in_progress"})),
+            || panic!("do not wait for another recipe"),
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("workflow head does not match preparation"));
+    }
 }
