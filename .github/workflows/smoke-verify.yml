@@ -1,0 +1,85 @@
+name: Smoke-test container compatibility
+run-name: container compatibility ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Public reference candidate
+        required: true
+        type: string
+      manifest_sha256:
+        description: Expected candidate manifest checksum
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  containers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: linux-x86_64
+            runner: ubuntu-24.04
+            engine: docker
+          - group: linux-aarch64
+            runner: ubuntu-24.04-arm
+            engine: docker
+          - group: linux-x86_64
+            runner: ubuntu-24.04
+            engine: podman
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-nix
+      - name: Prepare rootless Podman
+        if: matrix.engine == 'podman'
+        run: |
+          if ! command -v podman >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes podman
+          fi
+          test "$(id -u)" != 0
+          podman info
+      - name: Build with corrected container launches and compare bytes
+        env:
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          BUILD_GROUP: ${{ matrix.group }}
+          CONTAINER_ENGINE: ${{ matrix.engine }}
+        shell: bash
+        run: |
+          test "$GITHUB_REPOSITORY" = tnull/ldk-node-bindings-test
+          [[ "$CANDIDATE_ID" =~ ^candidate-[A-Za-z0-9._-]+$ ]]
+          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/expected"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$CANDIDATE_ID"
+          curl -fsSL --retry 3 "$base/candidate.json" -o "$RUNNER_TEMP/evidence/candidate.json"
+          printf '%s  %s\n' "$MANIFEST_SHA256" "$RUNNER_TEMP/evidence/candidate.json" | sha256sum --check
+          jq -e --arg id "$CANDIDATE_ID" '.id == $id' "$RUNNER_TEMP/evidence/candidate.json"
+          scripts/build.sh --group "$BUILD_GROUP" --output "$RUNNER_TEMP/output" \
+            2>&1 | tee "$RUNNER_TEMP/evidence/build.log"
+          jq -r --arg group "$BUILD_GROUP" '.groups[$group].files[] | [.sha256,.name] | @tsv' \
+            "$RUNNER_TEMP/evidence/candidate.json" |
+          while IFS=$'\t' read -r checksum file; do
+            [[ "$file" =~ ^[A-Za-z0-9._-]+$ ]]
+            curl -fsSL --retry 3 "$base/$file" -o "$RUNNER_TEMP/expected/$file"
+            printf '%s  %s\n' "$checksum" "$RUNNER_TEMP/expected/$file" | sha256sum --check
+            cmp "$RUNNER_TEMP/expected/$file" "$RUNNER_TEMP/output/$file"
+            sha256sum "$RUNNER_TEMP/output/$file" >> "$RUNNER_TEMP/evidence/matching-sha256.txt"
+          done
+          test "$(wc -l < "$RUNNER_TEMP/evidence/matching-sha256.txt")" = 2
+          git diff --exit-code
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: containers-${{ matrix.group }}-${{ matrix.engine }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: warn
+          retention-days: 7
