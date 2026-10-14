@@ -245,9 +245,7 @@ pub fn prepare(root: &Path, repo: &str) -> Result<()> {
     if repo == "lightningdevkit/ldk-node-bindings" {
         println!("./scripts/verify.sh {candidate_id} {manifest_sha256}");
     } else {
-        for group in GROUPS {
-            println!("nix run .#release -- verify --candidate {url} --group {group} --output /tmp/verify-{id}-{group}");
-        }
+        println!("./scripts/verify.sh {candidate_id} {manifest_sha256} --repo {repo}");
     }
     if ledger.phase != "downloaded" {
         bail!("preparation incomplete");
