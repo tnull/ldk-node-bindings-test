@@ -120,10 +120,11 @@ jobs:
           failure="$result/diagnostics/$BUILD_GROUP/failure.json"
           if [[ -f "$failure" ]]; then
             work_dir=$(jq -er '.work_dir' "$failure")
-            [[ "$work_dir" == /tmp/bindings-verify-* ]]
+            [[ "$work_dir" =~ ^/tmp/bindings-verify-[A-Za-z0-9]+$ ]]
             if [[ -d "$work_dir/output" ]]; then
               find "$work_dir/output" -type f -exec shasum -a 256 {} + \
                 > "$evidence/diagnostics/$BUILD_GROUP/rebuilt-sha256.txt"
+              cp -R "$work_dir/output" "$evidence/diagnostics/$BUILD_GROUP/rebuilt"
             fi
             for log in "$work_dir"/native-build-*/generation.log; do
               if [[ -f "$log" ]]; then

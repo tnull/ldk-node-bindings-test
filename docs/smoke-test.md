@@ -38,9 +38,9 @@ separately checks JVM assembly and native loading on Linux aarch64.
 
 Every verification job attempts to upload `verify-GROUP`, including on failure.
 Artifacts retain receipts, the verifier log, candidate metadata, host details,
-failure records, generation logs, and hashes of any rebuilt output. Build
-workspaces and caches stay off the artifacts. Download evidence within seven
-days:
+failure records, generation logs, and final rebuilt output with its hashes.
+Build workspaces and caches stay off the artifacts; expected output remains
+available from the public candidate. Download evidence within seven days:
 
 ```bash
 gh run download VERIFICATION_RUN_ID --repo tnull/ldk-node-bindings-test \
