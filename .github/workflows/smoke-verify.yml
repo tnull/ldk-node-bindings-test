@@ -1,67 +1,22 @@
-name: Smoke-test anonymous verification
-run-name: verify ${{ inputs.candidate_id }}
+name: Diagnose Darwin UUIDs
+run-name: Darwin UUID diagnostics
 
 on:
   workflow_dispatch:
-    inputs:
-      candidate_id:
-        description: Public candidate release tag to reproduce
-        required: true
-        type: string
-      manifest_sha256:
-        description: Reviewed SHA-256 of candidate.json
-        required: true
-        type: string
 
 permissions: {}
 
 jobs:
-  inputs:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
-      - name: Validate candidate identity and smoke-test scope
-        env:
-          CANDIDATE_ID: ${{ inputs.candidate_id }}
-          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+      - name: Check test scope and fetch anonymously
         shell: bash
         run: |
           test "$GITHUB_REPOSITORY" = tnull/ldk-node-bindings-test
           jq -e '.repository.private == false' "$GITHUB_EVENT_PATH"
-          [[ "$CANDIDATE_ID" =~ ^candidate-[A-Za-z0-9._-]+$ ]]
-          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-
-  verify:
-    needs: inputs
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: generated
-            runner: ubuntu-24.04
-            arch: x86_64
-          - group: linux-x86_64
-            runner: ubuntu-24.04
-            arch: x86_64
-          - group: linux-aarch64
-            runner: ubuntu-24.04-arm
-            arch: aarch64
-          - group: android
-            runner: ubuntu-24.04
-            arch: x86_64
-          - group: darwin
-            runner: macos-15
-            arch: arm64
-          - group: jvm
-            runner: ubuntu-24.04
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    steps:
-      - name: Fetch the exact workflow revision anonymously
-        shell: bash
-        run: |
+          test "$(uname -m)" = arm64
           unset GH_TOKEN GITHUB_TOKEN
           export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
           export GIT_TERMINAL_PROMPT=0
@@ -70,17 +25,12 @@ jobs:
             "https://github.com/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
           git checkout --quiet --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Check host architecture
-        env:
-          EXPECTED_ARCH: ${{ matrix.arch }}
-        shell: bash
-        run: test "$(uname -m)" = "$EXPECTED_ARCH"
       - name: Select pinned Apple tools
-        if: matrix.group == 'darwin'
         shell: bash
         run: |
           sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
           test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 15.5
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
         with:
           install_url: https://releases.nixos.org/nix/nix-2.35.2/install
@@ -89,72 +39,195 @@ jobs:
             accept-flake-config = false
             always-allow-substitutes = false
             access-tokens =
-      - name: Check anonymous Nix bootstrap
+      - name: Compare minimal C and Cargo builds
         shell: bash
         run: |
-          test "$(nix --version)" = 'nix (Nix) 2.35.2'
-          # The final blank setting applies before the installer starts the daemon.
-          nix config show --json | jq -e '.["access-tokens"].value == {}' >/dev/null
-          # Remove the install action's overridden token from the file as well.
-          awk '!/^[[:space:]]*(extra-)?access-tokens[[:space:]]*=/;
-            END { print "access-tokens =" }' /etc/nix/nix.conf \
-            > "$RUNNER_TEMP/anonymous-nix.conf"
-          sudo install -m 644 "$RUNNER_TEMP/anonymous-nix.conf" /etc/nix/nix.conf
-          nix config show --json | jq -e '.["access-tokens"].value == {}' >/dev/null
-      - name: Reproduce the public candidate anonymously
-        env:
-          CANDIDATE_ID: ${{ inputs.candidate_id }}
-          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
-          BUILD_GROUP: ${{ matrix.group }}
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/verification-evidence"
-          env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify.sh \
-            "$CANDIDATE_ID" "$MANIFEST_SHA256" --repo "$GITHUB_REPOSITORY" \
-            --group "$BUILD_GROUP" --output "$RUNNER_TEMP/verification" \
-            2>&1 | tee "$RUNNER_TEMP/verification-evidence/verify.log"
-      - name: Preserve receipts and focused diagnostics
-        if: always()
-        env:
-          BUILD_GROUP: ${{ matrix.group }}
-        shell: bash
-        run: |
-          result="$RUNNER_TEMP/verification"
-          evidence="$RUNNER_TEMP/verification-evidence"
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/uuid-diagnostics"
           mkdir -p "$evidence"
-          {
-            printf 'Workflow revision: %s\nGroup: %s\n' "$GITHUB_SHA" "$BUILD_GROUP"
-            uname -a
-            df -h
-          } > "$evidence/host.txt"
-          for directory in receipts diagnostics; do
-            if [[ -d "$result/$directory" ]]; then
-              cp -R "$result/$directory" "$evidence/"
-            fi
+          exec > >(tee "$evidence/probe.log") 2>&1
+          scratch=$(mktemp -d /tmp/ldk-uuid-probe-XXXXXXXX)
+          original_home=$HOME
+          fresh_home="$scratch/fresh-home"
+          mkdir -p "$fresh_home" "$scratch/source" "$scratch/shallow" "$scratch/nested/one/two"
+          printf 'Workflow revision: %s\nScratch: %s\n' "$GITHUB_SHA" "$scratch"
+          uname -a
+          /usr/sbin/sysctl hw.ncpu hw.logicalcpu hw.activecpu
+          /usr/bin/xcodebuild -version
+          /usr/bin/xcrun ld -version_details
+          /usr/bin/man ld | /usr/bin/col -b > "$evidence/ld-man.txt"
+          grep -A 10 -B 2 -- '-reproducible' "$evidence/ld-man.txt" || true
+          # Record only this allowlist of inherited environment values.
+          for variable in RC_UUID_SALT SOURCE_DATE_EPOCH ZERO_AR_DATE SDKROOT DEVELOPER_DIR; do
+            printf 'Inherited %s=' "$variable"
+            printenv "$variable" || printf '<unset>\n'
           done
-          for file in "$result/candidate/candidate.json" \
-            "$result/candidate/checksums.txt" "$result/candidate/"*.inventory.json; do
-            if [[ -f "$file" ]]; then cp "$file" "$evidence/"; fi
-          done
-          failure="$result/diagnostics/$BUILD_GROUP/failure.json"
-          if [[ -f "$failure" ]]; then
-            work_dir=$(jq -er '.work_dir' "$failure")
-            [[ "$work_dir" =~ ^/tmp/bindings-verify-[A-Za-z0-9]+$ ]]
-            if [[ -d "$work_dir/output" ]]; then
-              find "$work_dir/output" -type f -exec shasum -a 256 {} + \
-                > "$evidence/diagnostics/$BUILD_GROUP/rebuilt-sha256.txt"
-              cp -R "$work_dir/output" "$evidence/diagnostics/$BUILD_GROUP/rebuilt"
+          export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+          export SDKROOT
+          SDKROOT=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
+          export MACOSX_DEPLOYMENT_TARGET=11.0 ZERO_AR_DATE=1
+          export SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH=$(jq -r .native.source_date_epoch release.json)
+          # This is the same compiler used by .#build, without its native dependencies.
+          rust=$(nix build --no-update-lock-file .#rust --no-link --print-out-paths)
+          "$rust/bin/rustc" --version --verbose
+          "$rust/bin/cargo" --version
+          /usr/bin/xcrun clang --version
+          printf 'case\treference\tbytes_equal\twithout_uuid_signature_equal\n' > "$evidence/results.tsv"
+
+          capture() {
+            local label=$1 binary=$2 reference=$3
+            cp "$binary" "$evidence/$label.dylib"
+            /usr/bin/otool -l "$binary" > "$evidence/$label.load-commands.txt"
+            /usr/bin/xcrun dwarfdump --uuid "$binary" | tee "$evidence/$label.uuid.txt"
+            shasum -a 256 "$binary" > "$evidence/$label.sha256.txt"
+            # Thin 64-bit Mach-O commands start after the 32-byte header.
+            /usr/bin/otool -l "$binary" | awk '
+              BEGIN { offset = 32 }
+              $1 == "cmd" { command = $2 }
+              $1 == "cmdsize" {
+                if (command == "LC_UUID") print "uuid", offset + 8, 16
+                offset += $2
+              }
+              $1 == "dataoff" && command == "LC_CODE_SIGNATURE" { signature = $2 }
+              $1 == "datasize" && command == "LC_CODE_SIGNATURE" { print "signature", signature, $2 }
+            ' > "$evidence/$label.ranges.txt"
+            grep '^uuid ' "$evidence/$label.ranges.txt"
+            # Keep original binaries: normalized copies are diagnostic only.
+            cp "$binary" "$evidence/$label.normalized"
+            while read -r kind offset length; do
+              printf 'Normalize %s %s offset=%s length=%s\n' "$label" "$kind" "$offset" "$length"
+              dd if=/dev/zero of="$evidence/$label.normalized" bs=1 seek="$offset" \
+                count="$length" conv=notrunc 2>/dev/null
+            done < "$evidence/$label.ranges.txt"
+            if [[ $label != "$reference" ]]; then
+              local raw=false normalized=false
+              if cmp -s "$evidence/$reference.dylib" "$binary"; then raw=true; fi
+              if cmp -s "$evidence/$reference.normalized" "$evidence/$label.normalized"; then normalized=true; fi
+              cmp -l "$evidence/$reference.dylib" "$binary" \
+                > "$evidence/$label.byte-differences.txt" 2>&1 || test "$?" = 1
+              printf '%s\t%s\t%s\t%s\n' "$label" "$reference" "$raw" "$normalized" \
+                | tee -a "$evidence/results.tsv"
             fi
-            for log in "$work_dir"/native-build-*/generation.log; do
-              if [[ -f "$log" ]]; then
-                cp "$log" "$evidence/diagnostics/$BUILD_GROUP/"
-              fi
-            done
-          fi
+          }
+          invoke() {
+            local mode=$1 probe_home=$2
+            shift 2
+            if [[ $mode = clean ]]; then
+              env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$probe_home" \
+                DEVELOPER_DIR="$DEVELOPER_DIR" SDKROOT="$SDKROOT" \
+                MACOSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+                SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" ZERO_AR_DATE="$ZERO_AR_DATE" "$@"
+            else
+              env HOME="$probe_home" "$@"
+            fi
+          }
+          printf 'int uuid_probe(void) { return 42; }\n' > "$scratch/source/probe.c"
+          c_probe() {
+            local label=$1 directory=$2 cwd=$3 probe_home=$4 mode=$5 basename=$6 reference=$7
+            shift 7
+            mkdir -p "$directory"
+            (
+              cd "$cwd"
+              invoke "$mode" "$probe_home" /usr/bin/clang -dynamiclib -g0 \
+                -Wl,-install_name,@rpath/libuuid_probe.dylib "$@" \
+                "$scratch/source/probe.c" -o "$directory/$basename"
+            )
+            capture "$label" "$directory/$basename" "$reference"
+          }
+          c_probe c-baseline "$scratch/shallow" "$scratch/source" "$original_home" normal libuuid_probe.dylib c-baseline
+          c_probe c-repeat "$scratch/shallow" "$scratch/source" "$original_home" normal libuuid_probe.dylib c-baseline
+          c_probe c-nested "$scratch/nested/one/two" "$scratch/source" "$original_home" normal libuuid_probe.dylib c-baseline
+          c_probe c-fresh-home "$scratch/shallow" "$scratch/source" "$fresh_home" normal libuuid_probe.dylib c-baseline
+          c_probe c-clean "$scratch/shallow" "$scratch/source" "$original_home" clean libuuid_probe.dylib c-baseline
+          c_probe c-clean-fresh-home "$scratch/shallow" "$scratch/source" "$fresh_home" clean libuuid_probe.dylib c-baseline
+          c_probe c-cwd "$scratch/shallow" "$scratch/nested/one/two" "$original_home" normal libuuid_probe.dylib c-baseline
+          c_probe c-basename "$scratch/shallow" "$scratch/source" "$original_home" normal different.dylib c-baseline
+          c_probe c-reproducible "$scratch/shallow" "$scratch/source" "$original_home" normal libuuid_probe.dylib c-baseline -Wl,-reproducible
+          c_probe c-reproducible-nested "$scratch/nested/one/two" "$scratch/source" "$original_home" normal libuuid_probe.dylib c-reproducible -Wl,-reproducible
+
+          mkdir "$scratch/rust-fixture"
+          cat > "$scratch/rust-fixture/Cargo.toml" <<'TOML'
+          [package]
+          name = "uuid-probe"
+          version = "0.1.0"
+          edition = "2021"
+          [lib]
+          path = "lib.rs"
+          crate-type = ["cdylib"]
+          [profile.release]
+          panic = "abort"
+          [profile.release-smaller]
+          inherits = "release"
+          opt-level = "z"
+          lto = true
+          codegen-units = 1
+          panic = "abort"
+          TOML
+          cat > "$scratch/rust-fixture/lib.rs" <<'RUST'
+          #[no_mangle]
+          pub extern "C" fn uuid_probe() -> u32 { 42 }
+          RUST
+          printf 'Disposable Cargo fixture for Darwin UUID diagnostics.\n' > "$scratch/rust-fixture/README.md"
+          cp -R "$scratch/rust-fixture" "$evidence/rust-fixture"
+          cat > "$scratch/clang-capture" <<'CLANG'
+          #!/bin/bash
+          set -euo pipefail
+          printf '%s\n' "$@" > "$LDK_UUID_CAPTURE.link-args.txt"
+          /usr/bin/clang "$@"
+          previous='' output=''
+          for argument in "$@"; do
+            if [[ $previous = -o ]]; then output=$argument; fi
+            previous=$argument
+          done
+          test -n "$output"
+          cp "$output" "$LDK_UUID_CAPTURE.prestrip.dylib"
+          /usr/bin/nm -ap "$output" > "$LDK_UUID_CAPTURE.prestrip-symbols.txt"
+          CLANG
+          chmod +x "$scratch/clang-capture"
+          rust_probe() {
+            local label=$1 directory=$2 probe_home=$3 mode=$4 profile=$5 reference=$6 extra=$7
+            mkdir -p "$directory/source"
+            if [[ $extra = oso-prefix ]]; then
+              extra="-C link-arg=-Wl,-oso_prefix,$(cd "$directory" && pwd -P)/"
+            fi
+            cp "$scratch/rust-fixture/"* "$directory/source/"
+            # Fresh objects for every invocation, including repeated-path probes.
+            rm -rf "$directory/cargo-target"
+            (
+              cd "$directory/source"
+              invoke "$mode" "$probe_home" /usr/bin/env \
+                CARGO_TARGET_DIR="$directory/cargo-target" CARGO_HOME="$scratch/cargo-home" \
+                LDK_UUID_CAPTURE="$evidence/$label" \
+                RUSTC="$rust/bin/rustc" \
+                RUSTFLAGS="--remap-path-prefix=$directory=/build -C debuginfo=0 -C linker=$scratch/clang-capture -C link-arg=-Wl,-install_name,@rpath/libuuid_probe.dylib $extra" \
+                "$rust/bin/cargo" build --offline --verbose --profile "$profile" --target aarch64-apple-darwin
+            )
+            capture "$label" "$directory/cargo-target/aarch64-apple-darwin/$profile/libuuid_probe.dylib" "$reference"
+            capture "$label-prestrip" "$evidence/$label.prestrip.dylib" "$reference-prestrip"
+          }
+          rust_probe rust-baseline "$scratch/rust-shallow" "$original_home" normal release rust-baseline ''
+          rust_probe rust-repeat "$scratch/rust-shallow" "$original_home" normal release rust-baseline ''
+          rust_probe rust-same-length "$scratch/rust-renamed" "$original_home" normal release rust-baseline ''
+          rust_probe rust-nested "$scratch/nested/one/two/rust" "$original_home" normal release rust-baseline ''
+          rust_probe rust-fresh-home "$scratch/rust-shallow" "$fresh_home" normal release rust-baseline ''
+          rust_probe rust-clean "$scratch/rust-shallow" "$original_home" clean release rust-baseline ''
+          rust_probe rust-clean-nested-home "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-baseline ''
+          rust_probe rust-reproducible "$scratch/rust-shallow" "$original_home" normal release rust-baseline '-C link-arg=-Wl,-reproducible'
+          rust_probe rust-reproducible-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-reproducible '-C link-arg=-Wl,-reproducible'
+          rust_probe rust-linker-strip "$scratch/rust-shallow" "$original_home" normal release rust-baseline '-C link-arg=-Wl,-S'
+          rust_probe rust-linker-strip-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-linker-strip '-C link-arg=-Wl,-S'
+          rust_probe rust-oso-prefix "$scratch/rust-shallow" "$original_home" normal release rust-baseline oso-prefix
+          rust_probe rust-oso-prefix-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release rust-oso-prefix oso-prefix
+          rust_probe rust-smaller "$scratch/rust-shallow" "$original_home" normal release-smaller rust-smaller ''
+          rust_probe rust-smaller-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release-smaller rust-smaller ''
+          rust_probe rust-smaller-reproducible "$scratch/rust-shallow" "$original_home" normal release-smaller rust-smaller '-C link-arg=-Wl,-reproducible'
+          rust_probe rust-smaller-reproducible-nested "$scratch/nested/one/two/rust" "$fresh_home" clean release-smaller rust-smaller-reproducible '-C link-arg=-Wl,-reproducible'
+          cat "$evidence/results.tsv" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: verify-${{ matrix.group }}
-          path: ${{ runner.temp }}/verification-evidence/
+          name: darwin-uuid-diagnostics
+          path: ${{ runner.temp }}/uuid-diagnostics/
           if-no-files-found: error
           retention-days: 7
