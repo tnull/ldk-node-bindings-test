@@ -1,0 +1,140 @@
+name: Smoke-test anonymous verification
+run-name: verify ${{ inputs.candidate_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Public candidate release tag to reproduce
+        required: true
+        type: string
+      manifest_sha256:
+        description: Reviewed SHA-256 of candidate.json
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate candidate identity and smoke-test scope
+        env:
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        shell: bash
+        run: |
+          test "$GITHUB_REPOSITORY" = tnull/ldk-node-bindings-test
+          jq -e '.repository.private == false' "$GITHUB_EVENT_PATH"
+          [[ "$CANDIDATE_ID" =~ ^candidate-[A-Za-z0-9._-]+$ ]]
+          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+  verify:
+    needs: inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: generated
+            runner: ubuntu-24.04
+            arch: x86_64
+          - group: linux-x86_64
+            runner: ubuntu-24.04
+            arch: x86_64
+          - group: linux-aarch64
+            runner: ubuntu-24.04-arm
+            arch: aarch64
+          - group: android
+            runner: ubuntu-24.04
+            arch: x86_64
+          - group: darwin
+            runner: macos-15
+            arch: arm64
+          - group: jvm
+            runner: ubuntu-24.04
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Fetch the exact workflow revision anonymously
+        shell: bash
+        run: |
+          unset GH_TOKEN GITHUB_TOKEN
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_TERMINAL_PROMPT=0
+          git init --quiet --template=
+          git -c credential.helper= -c core.askPass= fetch --quiet --depth=1 \
+            "https://github.com/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Check host architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: test "$(uname -m)" = "$EXPECTED_ARCH"
+      - name: Select pinned Apple tools
+        if: matrix.group == 'darwin'
+        shell: bash
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
+          test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+      - uses: ./.github/actions/setup-nix
+      - name: Reproduce the public candidate anonymously
+        env:
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          BUILD_GROUP: ${{ matrix.group }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/verification-evidence"
+          env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify.sh \
+            "$CANDIDATE_ID" "$MANIFEST_SHA256" --repo "$GITHUB_REPOSITORY" \
+            --group "$BUILD_GROUP" --output "$RUNNER_TEMP/verification" \
+            2>&1 | tee "$RUNNER_TEMP/verification-evidence/verify.log"
+      - name: Preserve receipts and focused diagnostics
+        if: always()
+        env:
+          BUILD_GROUP: ${{ matrix.group }}
+        shell: bash
+        run: |
+          result="$RUNNER_TEMP/verification"
+          evidence="$RUNNER_TEMP/verification-evidence"
+          mkdir -p "$evidence"
+          {
+            printf 'Workflow revision: %s\nGroup: %s\n' "$GITHUB_SHA" "$BUILD_GROUP"
+            uname -a
+            df -h
+          } > "$evidence/host.txt"
+          for directory in receipts diagnostics; do
+            if [[ -d "$result/$directory" ]]; then
+              cp -R "$result/$directory" "$evidence/"
+            fi
+          done
+          for file in "$result/candidate/candidate.json" \
+            "$result/candidate/checksums.txt" "$result/candidate/"*.inventory.json; do
+            if [[ -f "$file" ]]; then cp "$file" "$evidence/"; fi
+          done
+          failure="$result/diagnostics/$BUILD_GROUP/failure.json"
+          if [[ -f "$failure" ]]; then
+            work_dir=$(jq -er '.work_dir' "$failure")
+            [[ "$work_dir" == /tmp/bindings-verify-* ]]
+            if [[ -d "$work_dir/output" ]]; then
+              find "$work_dir/output" -type f -exec shasum -a 256 {} + \
+                > "$evidence/diagnostics/$BUILD_GROUP/rebuilt-sha256.txt"
+            fi
+            for log in "$work_dir"/native-build-*/generation.log; do
+              if [[ -f "$log" ]]; then
+                cp "$log" "$evidence/diagnostics/$BUILD_GROUP/"
+              fi
+            done
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: verify-${{ matrix.group }}
+          path: ${{ runner.temp }}/verification-evidence/
+          if-no-files-found: error
+          retention-days: 7
