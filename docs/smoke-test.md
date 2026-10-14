@@ -57,3 +57,14 @@ gh run download VERIFICATION_RUN_ID --repo tnull/ldk-node-bindings-test \
 Review the evidence locally, explicitly select one receipt for each of the six
 groups, and run the existing `collect` command against the candidate. The
 workflow neither selects trusted receipts nor collects or publishes a release.
+
+The throwaway repository also allows manual dispatch of the unchanged Checks
+jobs to exercise hosted formatting, Clippy, ShellCheck, and recipe checks
+independently of a pull request:
+
+```bash
+gh workflow run checks.yml --repo tnull/ldk-node-bindings-test \
+  --ref 2026-10-smoke-checks
+```
+
+This extra trigger is test infrastructure and stays off the production branch.
