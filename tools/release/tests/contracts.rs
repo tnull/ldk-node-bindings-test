@@ -1044,6 +1044,11 @@ esac
     );
     assert!(git(r.dir.path(), &["tag", "--list", "v0.7.1"]).is_empty());
     assert_eq!(git(r.dir.path(), &["rev-parse", "HEAD"]), r.sha);
+    let message = git(remote.path(), &["log", "-1", "--format=%B", "v0.7.1"]);
+    assert!(
+        !message.to_ascii_lowercase().contains("co-authored-by:"),
+        "Generated release commits must not invent co-authors: {message}"
+    );
     let package = git(remote.path(), &["show", "v0.7.1:Package.swift"]);
     assert!(
         package.contains(".macOS(\"13.2\")") && package.contains(".iOS(\"16.1\")"),

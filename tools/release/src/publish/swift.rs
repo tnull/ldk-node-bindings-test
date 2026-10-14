@@ -142,7 +142,7 @@ pub(super) fn publish(
             add.current_dir(&tree).arg("add").args(desired.keys());
             run(&mut add)?;
             let message = work.path().join("message");
-            fs::write(&message,"Publish verified Swift package metadata\n\nSwift consumers need a version tag containing generated bindings and a\nchecksum for the independently reproduced framework.\n\nPublish the matching source, licenses, and provenance in the Swift\ndistribution repository before creating its immutable version tag.\n\nCo-Authored-By: HAL 9000\n")?;
+            fs::write(&message,"Publish verified Swift package metadata\n\nSwift consumers need a version tag containing generated bindings and a\nchecksum for the independently reproduced framework.\n\nPublish the matching source, licenses, and provenance in the Swift\ndistribution repository before creating its immutable version tag.\n")?;
             run(git_command()
                 .current_dir(&tree)
                 .args(["commit", "--file"])
