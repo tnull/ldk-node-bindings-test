@@ -140,8 +140,42 @@ release announcement, then run:
 ./scripts/verify.sh candidate-VERSION-RECIPE12-RUN_ID-ATTEMPT SHA_SUM
 ```
 
-The same command works on supported Linux and macOS hosts without a PAT or GitHub
-write access. It checks the manifest checksum and requires the recipe to be an
+To verify Linux artifacts **without installing Nix on the host**, install Git,
+tar, and either Podman on Linux or Docker (Docker Desktop on macOS), then run:
+
+```bash
+./scripts/verify-containerized.sh CANDIDATE_ID SHA_SUM --output ./verification
+# Select Docker explicitly when both engines are installed:
+CONTAINER_ENGINE=docker ./scripts/verify-containerized.sh CANDIDATE_ID SHA_SUM
+```
+
+The launcher accepts the same `--repo`, `--group`, and `--output` options.
+It selects Podman when installed, otherwise Docker. Your user must already be
+able to run the selected engine; the script requires neither sudo nor host Nix.
+Podman uses a temporary local API service that stops when verification finishes.
+Docker must use a local Unix socket; remote engines and Podman Machine are not
+supported. On macOS, Docker verifies Linux aarch64 groups on Apple Silicon,
+or Linux x86_64 groups on Intel; `darwin` still requires native Nix and Xcode.
+
+The pinned Nix image runs the verifier and shares its store and scratch directory
+with sibling manylinux containers. This grants the verifier access to your
+container engine. The containers disable SELinux label separation for these
+mounts; no host relabeling, Nix daemon, or system configuration changes are made.
+Only tracked checkout files are copied into the bootstrap container; candidate
+builds still use their exact committed recipes. No host credentials are mounted.
+
+Results, retained failure scratch, and the Nix cache volume name are printed at
+startup. With no `--output`, results live under `.release/container-*/results`.
+With `--output`, that directory must be empty; scratch is kept beside it in a
+`.ldk-verify-*` directory. Receipts remain after the container exits. Failure
+diagnostics refer to `/tmp/...` inside the container, corresponding to
+`work/...` in the printed scratch directory. Remove the result and scratch
+directories when finished; remove the printed cache with `podman volume rm NAME`
+or `docker volume rm NAME` when no verification is running. Allow ample disk
+space for the Nix store, manylinux images, and independent native builds.
+
+The verifier needs neither a PAT nor GitHub write access. It checks the manifest
+checksum and requires the recipe to be an
 ancestor of `main`, a `MAJOR.MINOR.x` maintenance branch, or a dated preparation
 branch in the official bindings repository. It then checks out that recipe in
 a temporary directory, leaving your checkout unchanged.

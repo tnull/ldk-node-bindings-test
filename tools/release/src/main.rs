@@ -98,28 +98,34 @@ fn main() {
 }
 fn execute() -> Result<()> {
     let cli = Cli::parse();
-    let root = process::root()?;
     match cli.command {
-        Commands::Prepare { repo } => prepare::prepare(&root, &repo),
+        Commands::Prepare { repo } => prepare::prepare(&process::root()?, &repo),
         Commands::Inventory {
             dir,
             recipe,
             group,
             candidate,
             output,
-        } => candidates::inventory(&root, &dir, &recipe, &group, candidate.as_deref(), &output),
+        } => candidates::inventory(
+            &process::root()?,
+            &dir,
+            &recipe,
+            &group,
+            candidate.as_deref(),
+            &output,
+        ),
         Commands::Candidate {
             dir,
             recipe,
             run_id,
             attempt,
             output,
-        } => candidates::candidate(&root, &dir, &recipe, &run_id, &attempt, &output),
+        } => candidates::candidate(&process::root()?, &dir, &recipe, &run_id, &attempt, &output),
         Commands::Verify {
             candidate,
             group,
             output,
-        } => candidates::verify(&root, &candidate, &group, &output),
+        } => candidates::verify(&process::root()?, &candidate, &group, &output),
         Commands::VerifyCandidate {
             id,
             sha256,
@@ -131,13 +137,20 @@ fn execute() -> Result<()> {
             candidate,
             receipts,
             output,
-        } => candidates::collect(&root, &candidate, &receipts, &output),
+        } => candidates::collect(&process::root()?, &candidate, &receipts, &output),
         Commands::Publish {
             verified,
             candidate,
             destination,
             confirm,
             swift,
-        } => publish::publish(&root, &verified, &candidate, destination, &confirm, &swift),
+        } => publish::publish(
+            &process::root()?,
+            &verified,
+            &candidate,
+            destination,
+            &confirm,
+            &swift,
+        ),
     }
 }
