@@ -4,7 +4,7 @@ let
   inputs = builtins.fromJSON (builtins.readFile ../release.json);
   rust = pkgs.rust-bin.stable.${inputs.rust_version}.minimal.override {
     targets =
-      if pkgs.stdenv.isDarwin then
+      if pkgs.stdenv.hostPlatform.isDarwin then
         [
           "x86_64-apple-darwin"
           "aarch64-apple-darwin"
@@ -13,7 +13,7 @@ let
           "aarch64-apple-ios-sim"
         ]
       else
-        lib.optionals pkgs.stdenv.isx86_64 [
+        lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
           "x86_64-linux-android"
           "aarch64-linux-android"
           "armv7-linux-androideabi"
@@ -109,7 +109,8 @@ let
     pkgs.uv
   ];
   buildShell = pkgs.mkShell {
-    packages = common ++ [ pkgs.jdk17 ] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.patchelf ];
+    packages =
+      common ++ [ pkgs.jdk17 ] ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.patchelf ];
     LDK_BUILD_SHELL = "1";
     LDK_NATIVE_SOURCE = nativeSource;
     LDK_NATIVE_DEPS = nativeDeps;
@@ -132,6 +133,7 @@ in
       generated
       ;
     maven-deps = mirror;
+    container-client = pkgs.docker-client;
     android-sdk = android.androidsdk;
     release = rustPlatform.buildRustPackage {
       pname = "ldk-bindings-release";
