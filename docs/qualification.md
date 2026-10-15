@@ -52,12 +52,31 @@ reports matching Linux x86_64 bytes through Docker on a separate machine, two
 matching Android builds, and two matching complete JVM assemblies. It also
 reports matching Darwin builds and passing Swift/Python consumers after local
 fixes, using Xcode 26.2 with relaxed pins. These are reviewer-reported results;
-they do not qualify the pinned Xcode 16.4 recipe or the subsequent corrections.
+they do not qualify the current Xcode 27.0 recipe or the subsequent corrections.
 
 The review corrections change recipe inputs, including generated Android
 configuration and native build flags. Historical hashes above describe the
 earlier experiments; independently compare fresh candidate bytes for the updated
-recipe. Linux aarch64 and pinned-Xcode runtime qualification remain outstanding.
+recipe. Independent reproduction outside GitHub remains required.
+
+## Hosted smoke test and Apple toolchain update
+
+The throwaway repository's [candidate build](https://github.com/tnull/ldk-node-bindings-test/actions/runs/38591238295)
+and [anonymous verification run](https://github.com/tnull/ldk-node-bindings-test/actions/runs/38600623779)
+passed for all six artifact groups, including Linux aarch64 and Darwin. The
+Darwin checks included Swift and Python consumers. Both runs used GitHub runners
+and Xcode 16.4; they establish hosted operation, not independent external trust.
+
+The recipe now selects macOS 27's `xcode-27` runner, Xcode 27.0 build `27A266a`,
+and SDKs 27.0. Python and JVM native deployment targets move to macOS 12.0 on
+both architectures, replacing the earlier Intel 10.12 and ARM 11.0 targets.
+Local orchestration and recipe checks do not establish Apple compilation,
+runtime compatibility, or byte equality for this changed toolchain.
+
+Build a fresh candidate and repeat Darwin reproduction and consumer checks with
+these exact pins. Check both architectures' Mach-O deployment metadata and
+exercise the declared minimum OS before relying on its compatibility. Earlier
+candidate hashes and receipts cannot qualify the updated recipe.
 
 ## Remaining release qualification
 

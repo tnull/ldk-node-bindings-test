@@ -21,8 +21,8 @@ wheel and `jvm-linux-ARCH.so` for x86_64 or aarch64. Darwin produces
 Maven files: binary, sources JAR, Javadoc JAR, POM, and module metadata.
 
 Python asset names are `ldk_node-VERSION-py3-none-PLATFORM.whl`, with PLATFORM one of
-`manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `macosx_10_12_x86_64`,
-`macosx_11_0_arm64`. Maven names use `ldk-node-jvm-VERSION` or
+`manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `macosx_12_0_x86_64`,
+`macosx_12_0_arm64`. Maven names use `ldk-node-jvm-VERSION` or
 `ldk-node-android-VERSION`. Keep exact filenames in the manifest, not inferred globs.
 
 ## Build entrypoint

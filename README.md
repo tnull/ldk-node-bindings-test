@@ -35,12 +35,13 @@ On Fedora with packaged Nix, install `nix-daemon`, start it with
 tries to write to the system store directly. Run verification as your normal
 user. Linux build and wheel-test containers disable SELinux label separation
 for their system-store mounts; host-wide SELinux settings and labels stay intact.
-Apple builds and verification run on an **Apple Silicon Mac** with full
-**Xcode 16.4 (16F6)**, its macOS 15.5 and iOS/simulator 18.5 SDKs, and the Xcode
-license accepted. Select that installation with `xcode-select`, or set:
+Apple builds and verification run on an **Apple Silicon Mac** with macOS 27,
+full **Xcode 27.0 (27A266a)**, its macOS and iOS/simulator 27.0 SDKs, and the
+Xcode license accepted. CI uses GitHub's `xcode-27` runner, currently in preview.
+Select that installation with `xcode-select`, or set:
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+export DEVELOPER_DIR=/Applications/Xcode_27.0.app/Contents/Developer
 ```
 
 Nix supplies the shared tools on both Linux and macOS. Xcode is an additional
@@ -48,6 +49,11 @@ local prerequisite; the Darwin group does not need Docker. Intel macOS artifacts
 are built on Apple Silicon; Intel Macs are not supported build hosts. Linux and
 Apple groups require their respective hosts, so one machine cannot independently
 verify the complete release. See [the reproducibility boundary](docs/reproducibility.md).
+
+The resulting Python wheels and Kotlin JVM libraries require macOS 12 or later
+on either architecture. Swift supports macOS 12 and iOS 15 or later. These
+deployment targets describe artifact compatibility, separately from the macOS 27
+build host requirement.
 
 Build one group into a new directory:
 
