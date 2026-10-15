@@ -2126,11 +2126,11 @@ fn entry_supports_one_group_and_preserves_mismatch_diagnostics() {
 
 #[test]
 #[cfg(unix)]
-fn verification_script_passes_arguments_and_preserves_exit_status() {
+fn shell_entrypoints_preserve_arguments_and_exit_status() {
     let bin = tempfile::tempdir().unwrap();
     executable(
         &bin.path().join("nix"),
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MOCK_ARGUMENTS\"\nexit 37\n",
+        "#!/bin/sh\npwd > \"$MOCK_CWD\"\nprintf '%s\\n' \"$@\" > \"$MOCK_ARGUMENTS\"\nexit 37\n",
     );
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -2138,51 +2138,103 @@ fn verification_script_passes_arguments_and_preserves_exit_status() {
         .parent()
         .unwrap();
     let args_file = bin.path().join("arguments");
-    let result = Command::new("bash")
-        .arg(root.join("scripts/verify.sh"))
-        .args([
-            "candidate-version-recipe-run-attempt",
-            &"a".repeat(64),
-            "--group",
-            "generated",
-            "--output",
-            "/tmp/output with spaces",
-            "--repo",
-            "tnull/ldk-node-bindings-test",
-        ])
-        .env("MOCK_ARGUMENTS", &args_file)
-        .env(
-            "PATH",
-            format!(
-                "{}:{}",
-                bin.path().display(),
-                std::env::var("PATH").unwrap()
-            ),
-        )
-        .output()
-        .unwrap();
-    assert_eq!(result.status.code(), Some(37));
-    let args = fs::read_to_string(args_file).unwrap();
-    assert_eq!(
-        args.lines().collect::<Vec<_>>(),
-        [
+    let cwd_file = bin.path().join("cwd");
+    let sha256 = "a".repeat(64);
+    let cases = [
+        (
+            "verify",
+            "verify-candidate",
+            vec![
+                "candidate-version-recipe-run-attempt",
+                &sha256,
+                "--group",
+                "generated",
+                "--output",
+                "/tmp/output with spaces",
+                "--repo",
+                "tnull/ldk-node-bindings-test",
+            ],
+        ),
+        (
+            "collect",
+            "collect",
+            vec![
+                "--candidate",
+                "../candidate files",
+                "--receipts",
+                "../accepted receipts",
+                "--output",
+                "verified ledger.json",
+            ],
+        ),
+        (
+            "publish",
+            "publish",
+            vec![
+                "--candidate",
+                "../candidate files",
+                "--verified",
+                "verified ledger.json",
+                "--destination",
+                "swift",
+                "--confirm",
+                "candidate-version-recipe-run-attempt",
+                "--repo",
+                "example/swift-distribution",
+            ],
+        ),
+    ];
+    for (script, subcommand, arguments) in cases {
+        let result = Command::new("bash")
+            .arg(root.join(format!("scripts/{script}.sh")))
+            .current_dir(root.join("tools"))
+            .args(&arguments)
+            .env("MOCK_ARGUMENTS", &args_file)
+            .env("MOCK_CWD", &cwd_file)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.path().display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(37),
+            "{script}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let flake = format!("{}#release", fs::canonicalize(root).unwrap().display());
+        let mut expected = vec![
             "--extra-experimental-features",
             "nix-command flakes",
             "run",
             "--no-update-lock-file",
-            &format!("{}#release", fs::canonicalize(root).unwrap().display()),
+            &flake,
             "--",
-            "verify-candidate",
-            "candidate-version-recipe-run-attempt",
-            &"a".repeat(64),
-            "--group",
-            "generated",
-            "--output",
-            "/tmp/output with spaces",
-            "--repo",
-            "tnull/ldk-node-bindings-test",
-        ]
-    );
+            subcommand,
+        ];
+        expected.extend(arguments);
+        assert_eq!(
+            fs::read_to_string(&args_file)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let expected_cwd = if script == "verify" {
+            root.to_path_buf()
+        } else {
+            root.join("tools")
+        };
+        assert_eq!(
+            fs::read_to_string(&cwd_file).unwrap().trim(),
+            fs::canonicalize(expected_cwd).unwrap().to_str().unwrap()
+        );
+    }
 }
 
 #[test]

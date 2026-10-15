@@ -186,7 +186,7 @@ Send the small receipts to the publishing maintainer. After deliberately
 selecting the receipts to trust, collect complete coverage:
 
 ```bash
-nix run .#release -- collect --candidate "$candidate_url" \
+./scripts/collect.sh --candidate "$candidate_url" \
   --receipts /tmp/accepted-receipts --output /tmp/verified-bindings.json
 ```
 
@@ -197,6 +197,35 @@ commands and recovery rules. Explicit local Swift publication sends the
 verified generated wrapper, `Package.swift`, licenses, provenance, and unchanged
 XCFramework ZIP to `lightningdevkit/ldk-node-swift`; its version tag belongs to
 that distribution repository.
+
+## Publish locally
+
+Return to the clean recipe worktree used to prepare the candidate before
+collecting receipts or publishing. Its commit must match the full `recipe`
+recorded in `candidate.json`. The `collect.sh` and `publish.sh` entrypoints use
+the pinned Nix release tool and accept its existing options; they preserve
+relative paths and do not select a different recipe checkout. Run either with
+`--help` for the full interface.
+
+After collecting complete verification coverage, explicitly publish one
+destination with credentials supplied through your local environment or
+credential store:
+
+```bash
+candidate_id=CANDIDATE_ID
+candidate_url="https://github.com/lightningdevkit/ldk-node-bindings/releases/tag/$candidate_id"
+./scripts/publish.sh --candidate "$candidate_url" \
+  --verified /tmp/verified-bindings.json --destination maven \
+  --confirm "$candidate_id"
+```
+
+Choose `testpypi`, `pypi`, `maven`, or `swift`. PyPI requires the identical wheels
+to pass the TestPyPI gate first. Swift defaults to `lightningdevkit/ldk-node-swift`;
+`--repo` changes that publication destination. The candidate URL independently
+selects the build repository, including a test repository. Publication requires
+the verified ledger and exact candidate confirmation, rejects CI, and reuses the
+existing publication record when resumed. See [the release guide](docs/releasing.md)
+for each destination's credentials, qualification requirements, and recovery.
 
 ## Verification status
 
