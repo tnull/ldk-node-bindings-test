@@ -25,9 +25,12 @@ export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/clang
 export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/usr/bin/clang
 export CARGO_TARGET_X86_64_APPLE_IOS_LINKER=/usr/bin/clang
 export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/usr/bin/clang
+# Rust 1.95's post-link stripping can misalign Mach-O string pools, rejected by
+# macOS 27. Profiles cover host procedural macros as well as target libraries.
+export CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_SMALLER_STRIP=none
 swift_flags=$RUSTFLAGS
-# Omit debug maps before the linker hashes its UUID. Rust strips them later,
-# after temporary object paths have already affected the library's identity.
+# Omit debug maps before the linker hashes its UUID, so temporary object paths
+# cannot affect the library's identity. Leave Mach-O layout to Apple's linker.
 export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,-S -C link-arg=-Wl,-install_name,@rpath/libldk_node.dylib"
 check_dylib() {
     local library=$1
