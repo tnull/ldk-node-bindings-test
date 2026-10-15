@@ -25,7 +25,7 @@ set +e
         [[ $DEVELOPER_DIR = "$LDK_XCODE_DEVELOPER_DIR" && ! -v SDKROOT && ! -v NIX_CFLAGS_COMPILE && ! -v NIX_LDFLAGS ]] || {
             echo 'Apple tools still use the Nix SDK environment' >&2; return 1;
         }
-        printf 'Xcode 16.4\nBuild version 16F6\n'
+        printf 'Xcode 27.0\nBuild version 27A266a\n'
     }
     function /usr/bin/xcrun() {
         if [[ $3 = --show-sdk-version ]]; then

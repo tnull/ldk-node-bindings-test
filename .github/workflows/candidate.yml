@@ -45,7 +45,7 @@ jobs:
             runner: ubuntu-24.04
             arch: x86_64
           - group: darwin
-            runner: macos-15
+            runner: xcode-27
             arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
@@ -62,8 +62,8 @@ jobs:
         if: matrix.group == 'darwin'
         shell: bash
         run: |
-          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
-          test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+          sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer
+          test "$(xcodebuild -version)" = $'Xcode 27.0\nBuild version 27A266a'
       - uses: ./.github/actions/setup-nix
       - name: Build and inventory
         env:

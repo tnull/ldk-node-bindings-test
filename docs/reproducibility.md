@@ -28,13 +28,17 @@ ZIP. Maven PGP signatures are added locally later and are outside that compariso
 - **Android:** pin the NDK and API levels and preserve the three supported ABIs
   and 16 KiB page alignment. Host architecture, Android tools and dependency
   locks are inputs, rather than whatever a runner happens to provide.
-- **Apple:** use Xcode 16.4, build 16F6, with its macOS 15.5, iOS 18.5, and
-  corresponding simulator SDKs. Xcode and licensed SDKs are installed locally;
+- **Apple:** use Xcode 27.0, build 27A266a, with its macOS, iOS, and simulator
+  27.0 SDKs. Xcode and licensed SDKs are installed locally;
   Nix does not redistribute them or freeze the complete macOS host. CI selects
   that exact installation and fails if it is absent.
+  Python wheels and JVM native libraries target macOS 12.0 on both architectures,
+  matching the SDK's [documented deployment support](https://developer.apple.com/documentation/xcode-release-notes/xcode-27-release-notes).
+  Swift retains macOS 12.0 and iOS 15.0 deployment targets.
 
-The [GitHub macOS runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md)
-is a provisioning reference, not a reproducibility lock. Hosted runner labels
+The [GitHub Xcode 27 runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
+describes the `xcode-27` Apple Silicon image running macOS 27, currently in
+preview. It is a provisioning reference, not a reproducibility lock. Runner labels
 move over time. Host architecture is checked explicitly; tool and SDK mismatches
 must be resolved by updating reviewed release inputs and creating new candidates.
 

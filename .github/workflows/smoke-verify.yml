@@ -51,7 +51,7 @@ jobs:
             runner: ubuntu-24.04
             arch: x86_64
           - group: darwin
-            runner: macos-15
+            runner: xcode-27
             arch: arm64
           - group: jvm
             runner: ubuntu-24.04
@@ -79,8 +79,8 @@ jobs:
         if: matrix.group == 'darwin'
         shell: bash
         run: |
-          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
-          test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+          sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer
+          test "$(xcodebuild -version)" = $'Xcode 27.0\nBuild version 27A266a'
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
         with:
           install_url: https://releases.nixos.org/nix/nix-2.35.2/install

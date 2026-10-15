@@ -35,7 +35,7 @@ Each group uses a fresh runner and its own empty verification directory:
 | `linux-x86_64` | `ubuntu-24.04` | x86_64 |
 | `linux-aarch64` | `ubuntu-24.04-arm` | aarch64 |
 | `android` | `ubuntu-24.04` | x86_64 |
-| `darwin` | `macos-15`, Xcode 16.4 (16F6) | arm64 |
+| `darwin` | `xcode-27` (macOS 27), Xcode 27.0 (27A266a) | arm64 |
 | `jvm` | `ubuntu-24.04` | x86_64 |
 
 JVM verification assembles all four candidate native libraries. Its receipt
