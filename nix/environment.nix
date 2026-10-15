@@ -132,6 +132,7 @@ in
       generated
       ;
     maven-deps = mirror;
+    container-client = pkgs.docker-client;
     android-sdk = android.androidsdk;
     release = rustPlatform.buildRustPackage {
       pname = "ldk-bindings-release";

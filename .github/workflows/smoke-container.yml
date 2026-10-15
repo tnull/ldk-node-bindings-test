@@ -1,0 +1,74 @@
+name: Smoke-test container verification
+on:
+  push:
+    branches: [2026-10-verify-docker]
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: docker
+            runner: ubuntu-24.04
+            group: linux-x86_64
+          - engine: podman
+            runner: ubuntu-24.04
+            group: linux-x86_64
+          - engine: docker
+            runner: ubuntu-24.04-arm
+            group: linux-aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Fetch the launcher anonymously
+        run: |
+          test "$GITHUB_REPOSITORY" = tnull/ldk-node-bindings-test
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+          git init --quiet --template=
+          git -c credential.helper= fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+      - name: Check engine and space
+        env:
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          "$ENGINE" info
+          df -h
+          # Free runner SDKs unrelated to Linux verification.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+      - name: Verify the native Linux candidate without host Nix
+        env:
+          CONTAINER_ENGINE: ${{ matrix.engine }}
+          BUILD_GROUP: ${{ matrix.group }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify-docker.sh \
+            candidate-0.7.1-670e8d6a640b-38708032491-1 \
+            bfb70e490553866882a7800523954faa49c66db1d95db64becaf5cd0eef34c53 \
+            --repo tnull/ldk-node-bindings-test --group "$BUILD_GROUP" \
+            --output "$RUNNER_TEMP/verification" 2>&1 | tee "$RUNNER_TEMP/evidence/verify.log"
+          jq -e --arg group "$BUILD_GROUP" \
+            '.group == $group and .candidate_id == "candidate-0.7.1-670e8d6a640b-38708032491-1" and (.files | length) > 0' \
+            "$RUNNER_TEMP/verification/receipts/$BUILD_GROUP.receipt.json"
+          test -z "$("$CONTAINER_ENGINE" ps -aq --filter label=ldk.bindings.verify)"
+          test -z "$(find "$RUNNER_TEMP/verification" "$RUNNER_TEMP"/.ldk-verify-* ! -user "$(id -un)" -print -quit)"
+      - name: Preserve diagnostics
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          for directory in receipts diagnostics; do
+            if test -d "$RUNNER_TEMP/verification/$directory"; then
+              cp -R "$RUNNER_TEMP/verification/$directory" "$RUNNER_TEMP/evidence/"
+            fi
+          done
+          sudo find "$RUNNER_TEMP" -path '*/native-build-*/generation.log' -exec cp '{}' "$RUNNER_TEMP/evidence/" \;
+          df -h > "$RUNNER_TEMP/evidence/disk.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: container-${{ matrix.engine }}-${{ matrix.group }}
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 7
