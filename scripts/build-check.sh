@@ -7,6 +7,7 @@ for script in scripts/build*.sh; do bash -n "$script"; done
 bash scripts/build-swift-metadata.sh
 bash scripts/build-check-retention.sh
 bash scripts/build-check-environment.sh
+bash scripts/build-check-maven-home.sh
 bash scripts/build-check-container.sh
 bash scripts/build-check-apple.sh
 for mode in config archive paths; do bash scripts/build-check-generation.sh "$mode"; done

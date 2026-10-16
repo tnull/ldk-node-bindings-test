@@ -1,7 +1,15 @@
 name: Smoke-test container verification
 on:
-  push:
-    branches: [2026-10-verify-docker]
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Public candidate to independently rebuild
+        required: true
+        type: string
+      manifest_sha256:
+        description: Trusted SHA-256 of candidate.json
+        required: true
+        type: string
 permissions: {}
 defaults:
   run:
@@ -14,13 +22,13 @@ jobs:
         include:
           - engine: docker
             runner: ubuntu-24.04
-            group: linux-x86_64
+            groups: generated linux-x86_64 android jvm
           - engine: podman
             runner: ubuntu-24.04
-            group: linux-x86_64
+            groups: generated linux-x86_64 android jvm
           - engine: docker
             runner: ubuntu-24.04-arm
-            group: linux-aarch64
+            groups: linux-aarch64 jvm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     steps:
@@ -39,20 +47,23 @@ jobs:
           df -h
           # Free runner SDKs unrelated to Linux verification.
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
-      - name: Verify the native Linux candidate without host Nix
+      - name: Verify every supported group without host Nix
         env:
           CONTAINER_ENGINE: ${{ matrix.engine }}
-          BUILD_GROUP: ${{ matrix.group }}
+          EXPECTED_GROUPS: ${{ matrix.groups }}
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
         run: |
           mkdir -p "$RUNNER_TEMP/evidence"
           env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify-docker.sh \
-            candidate-0.7.1-670e8d6a640b-38708032491-1 \
-            bfb70e490553866882a7800523954faa49c66db1d95db64becaf5cd0eef34c53 \
-            --repo tnull/ldk-node-bindings-test --group "$BUILD_GROUP" \
+            "$CANDIDATE_ID" "$MANIFEST_SHA256" \
+            --repo tnull/ldk-node-bindings-test \
             --output "$RUNNER_TEMP/verification" 2>&1 | tee "$RUNNER_TEMP/evidence/verify.log"
-          jq -e --arg group "$BUILD_GROUP" \
-            '.group == $group and .candidate_id == "candidate-0.7.1-670e8d6a640b-38708032491-1" and (.files | length) > 0' \
-            "$RUNNER_TEMP/verification/receipts/$BUILD_GROUP.receipt.json"
+          for group in $EXPECTED_GROUPS; do
+            jq -e --arg group "$group" --arg candidate "$CANDIDATE_ID" \
+              '.group == $group and .candidate_id == $candidate and .method == "independent-rebuild" and (.files | length) > 0' \
+              "$RUNNER_TEMP/verification/receipts/$group.receipt.json"
+          done
           test -z "$("$CONTAINER_ENGINE" ps -aq --filter label=ldk.bindings.verify)"
           test -z "$(find "$RUNNER_TEMP/verification" "$RUNNER_TEMP"/.ldk-verify-* ! -user "$(id -un)" -print -quit)"
       - name: Preserve diagnostics
@@ -69,6 +80,6 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: container-${{ matrix.engine }}-${{ matrix.group }}
+          name: container-${{ matrix.engine }}-${{ matrix.runner }}
           path: ${{ runner.temp }}/evidence/
           retention-days: 7

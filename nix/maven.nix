@@ -27,11 +27,13 @@ pkgs.stdenvNoCC.mkDerivation {
   dontConfigure = true;
   dontFixup = true;
   buildPhase = ''
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME"
     export GRADLE_USER_HOME="$TMPDIR/gradle"
     export LDK_MAVEN_OUTPUT="$TMPDIR/publication"
     export LC_ALL=C TZ=UTC
     printf '127.0.0.1 localhost %s\n' "$(uname -n)" > "$TMPDIR/hosts"
-    export JAVA_TOOL_OPTIONS="-Djdk.net.hosts.file=$TMPDIR/hosts"
+    export JAVA_TOOL_OPTIONS="-Duser.home=$HOME -Djdk.net.hosts.file=$TMPDIR/hosts"
     ${pkgs.lib.optionalString (platform == "android") ''
       export ANDROID_HOME=${android}/libexec/android-sdk
       export ANDROID_SDK_ROOT=$ANDROID_HOME
