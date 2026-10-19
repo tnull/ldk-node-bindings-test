@@ -1,0 +1,85 @@
+name: Smoke-test container verification
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Public candidate to independently rebuild
+        required: true
+        type: string
+      manifest_sha256:
+        description: Trusted SHA-256 of candidate.json
+        required: true
+        type: string
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: docker
+            runner: ubuntu-24.04
+            groups: generated linux-x86_64 android jvm
+          - engine: podman
+            runner: ubuntu-24.04
+            groups: generated linux-x86_64 android jvm
+          - engine: docker
+            runner: ubuntu-24.04-arm
+            groups: linux-aarch64 jvm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Fetch the launcher anonymously
+        run: |
+          test "$GITHUB_REPOSITORY" = tnull/ldk-node-bindings-test
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+          git init --quiet --template=
+          git -c credential.helper= fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+      - name: Check engine and space
+        env:
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          "$ENGINE" info
+          df -h
+          # Free runner SDKs unrelated to Linux verification.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+      - name: Verify every supported group without host Nix
+        env:
+          CONTAINER_ENGINE: ${{ matrix.engine }}
+          EXPECTED_GROUPS: ${{ matrix.groups }}
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify-containerized.sh \
+            "$CANDIDATE_ID" "$MANIFEST_SHA256" \
+            --repo tnull/ldk-node-bindings-test \
+            --output "$RUNNER_TEMP/verification" 2>&1 | tee "$RUNNER_TEMP/evidence/verify.log"
+          for group in $EXPECTED_GROUPS; do
+            jq -e --arg group "$group" --arg candidate "$CANDIDATE_ID" \
+              '.group == $group and .candidate_id == $candidate and .method == "independent-rebuild" and (.files | length) > 0' \
+              "$RUNNER_TEMP/verification/receipts/$group.receipt.json"
+          done
+          test -z "$("$CONTAINER_ENGINE" ps -aq --filter label=ldk.bindings.verify)"
+          test -z "$(find "$RUNNER_TEMP/verification" "$RUNNER_TEMP"/.ldk-verify-* ! -user "$(id -un)" -print -quit)"
+      - name: Preserve diagnostics
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          for directory in receipts diagnostics; do
+            if test -d "$RUNNER_TEMP/verification/$directory"; then
+              cp -R "$RUNNER_TEMP/verification/$directory" "$RUNNER_TEMP/evidence/"
+            fi
+          done
+          sudo find "$RUNNER_TEMP" -path '*/native-build-*/generation.log' -exec cp '{}' "$RUNNER_TEMP/evidence/" \;
+          df -h > "$RUNNER_TEMP/evidence/disk.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: container-${{ matrix.engine }}-${{ matrix.runner }}
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 7
