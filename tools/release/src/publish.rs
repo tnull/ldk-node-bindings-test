@@ -197,6 +197,30 @@ fn python_remote(index: &str, version: &str) -> Result<BTreeMap<String, String>>
     }
     Ok(files)
 }
+fn python_consumer(program: impl AsRef<std::ffi::OsStr>, home: &Path) -> Command {
+    let mut command = Command::new(program);
+    command.env_clear().current_dir(home).env("HOME", home);
+    // Keep transport configuration, but never inherit resolver settings,
+    // credentials or Python import paths into the staged-wheel check.
+    for key in [
+        "PATH",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+        "no_proxy",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command
+}
 fn python(session: &mut Session<'_>, destination: Destination) -> Result<()> {
     let files = python_files(session.candidate);
     ensure!(!files.is_empty(), "candidate has no wheels");
@@ -207,26 +231,40 @@ fn python(session: &mut Session<'_>, destination: Destination) -> Result<()> {
             "TestPyPI does not contain every identical candidate wheel"
         );
         let env = tempfile::tempdir()?;
-        run(Command::new("uv")
-            .args(["venv", "--python", "3.10"])
+        let requirements = env.path().join("requirements.txt");
+        let mut requirement = format!("ldk-node=={}", session.candidate.version);
+        for file in &files {
+            requirement.push_str(&format!(" --hash=sha256:{}", file.sha256));
+        }
+        requirement.push('\n');
+        fs::write(&requirements, requirement)?;
+        run(python_consumer("uv", env.path())
+            .args(["--no-config", "--no-cache", "venv", "--python", "3.10"])
             .arg(env.path().join("venv")))?;
         let interpreter = env.path().join("venv/bin/python");
-        run(Command::new("uv")
-            .args(["pip", "install", "--python"])
+        run(python_consumer("uv", env.path())
+            .args(["--no-config", "--no-cache", "pip", "install", "--python"])
             .arg(&interpreter)
             .args([
                 "--index-url",
                 "https://test.pypi.org/simple/",
                 "--no-deps",
-                &format!("ldk-node=={}", session.candidate.version),
-            ]))?;
-        run(Command::new(&interpreter)
-            .args(["-c", "import ldk_node; assert callable(ldk_node.Builder)"]))?;
+                "--only-binary",
+                ":all:",
+                "--require-hashes",
+                "--requirements",
+            ])
+            .arg(&requirements))?;
+        run(python_consumer(&interpreter, env.path()).args([
+            "-I",
+            "-c",
+            "import ldk_node; assert callable(ldk_node.Builder)",
+        ]))?;
     }
-    let host = if matches!(destination, Destination::Testpypi) {
-        "test.pypi.org"
+    let (host, upload_host) = if matches!(destination, Destination::Testpypi) {
+        ("test.pypi.org", "test.pypi.org")
     } else {
-        "pypi.org"
+        ("pypi.org", "upload.pypi.org")
     };
     let existing = python_remote(host, &session.candidate.version)?;
     for (name, hash) in &existing {
@@ -258,7 +296,7 @@ fn python(session: &mut Session<'_>, destination: Destination) -> Result<()> {
                 .args([
                     "publish",
                     "--publish-url",
-                    &format!("https://{host}/legacy/"),
+                    &format!("https://{upload_host}/legacy/"),
                 ])
                 .arg(session.dir.join(&file.name)))?;
             session.save(

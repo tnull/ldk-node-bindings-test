@@ -73,10 +73,17 @@ is not publishable; create a new attempt after diagnosing the failure.
 ## Complete verification
 
 Use the README's `verify` commands on the appropriate hosts and accept receipts
-only from rebuilds you intend to trust. Collect all six groups:
+only from rebuilds you intend to trust. Return to the candidate's clean recipe
+worktree (the full `recipe` commit in `candidate.json`) for both collection and
+publication. These entrypoints do not automatically switch recipes. Paths are
+relative to the calling directory within that worktree.
+
+Collect all six groups:
 
 ```bash
-nix run .#release -- collect --candidate "$candidate_url" \
+candidate_id=CANDIDATE_ID
+candidate_url="https://github.com/lightningdevkit/ldk-node-bindings/releases/tag/$candidate_id"
+./scripts/collect.sh --candidate "$candidate_url" \
   --receipts /tmp/accepted-receipts --output /tmp/verified-bindings.json
 ```
 
@@ -93,6 +100,11 @@ immediately before upload. Supply credentials locally through the indicated
 environment or credential store; do not place credential values in commands or
 logs. All destinations use existing verified candidate bytes.
 
+`scripts/collect.sh` and `scripts/publish.sh` launch the same pinned CLI as
+`nix run .#release -- collect` and `nix run .#release -- publish`, respectively.
+Use `--help` for their options. One invocation publishes one explicitly selected
+destination; no script adds confirmation or publishes the remaining destinations.
+
 | Destination | Local authentication | Result |
 | --- | --- | --- |
 | `testpypi` | `UV_PUBLISH_TOKEN` for TestPyPI | Stage the four verified wheels |
@@ -103,7 +115,7 @@ logs. All destinations use existing verified candidate bytes.
 Example for an explicitly authorized TestPyPI upload:
 
 ```bash
-nix run .#release -- publish --verified /tmp/verified-bindings.json \
+./scripts/publish.sh --verified /tmp/verified-bindings.json \
   --candidate "$candidate_url" --destination testpypi \
   --confirm "$candidate_id"
 ```
@@ -111,7 +123,17 @@ nix run .#release -- publish --verified /tmp/verified-bindings.json \
 Production PyPI uses the same command with `--destination pypi` and a separate
 PyPI token. The publisher checks TestPyPI's recorded digests against every
 candidate wheel and performs a fresh installation/import check before production
-promotion. Do not rebuild or rename wheels between staging and promotion.
+promotion. That installation uses only TestPyPI, requires a candidate wheel hash,
+and ignores local uv configuration, extra indexes, caches, and Python import
+paths. Do not rebuild or rename wheels between staging and promotion.
+
+For an explicitly authorized Maven publication:
+
+```bash
+./scripts/publish.sh --verified /tmp/verified-bindings.json \
+  --candidate "$candidate_url" --destination maven \
+  --confirm "$candidate_id"
+```
 
 For Maven, `MAVEN_CENTRAL_TOKEN` is the Base64 encoding of the Central Portal
 token's `username:password`; keep it in the local environment. `GPG_KEY_ID` can
@@ -135,7 +157,7 @@ Consumers use the Swift repository's SwiftPM URL and version tag; the native
 source tag and candidate prerelease tag have distinct roles.
 
 ```bash
-nix run .#release -- publish --verified /tmp/verified-bindings.json \
+./scripts/publish.sh --verified /tmp/verified-bindings.json \
   --candidate "$candidate_url" --destination swift \
   --repo lightningdevkit/ldk-node-swift --confirm "$candidate_id"
 ```
@@ -163,6 +185,27 @@ the Mac build host. Keep these functional checks separate from byte equality.
 
 Android uses JNA 5.17.0 for its 16 KiB page fixes. Both JNA's native payload
 and the packaged LDK libraries are checked for compatible ELF alignment.
+
+Consuming applications also need compatible APK and App Bundle packaging.
+Use AGP 8.5.1 or newer to package uncompressed native libraries with 16 KiB ZIP
+alignment. With older AGP versions, enable compressed native libraries in the
+application's `build.gradle.kts`:
+
+```kotlin
+android {
+    packagingOptions {
+        jniLibs { useLegacyPackaging = true }
+    }
+}
+```
+
+For AGP 8.0 or older, App Bundles also require
+`android.bundle.enableUncompressedNativeLibs=false` in `gradle.properties`.
+Follow [Android's packaging requirements](https://developer.android.com/guide/practices/page-sizes#update-packaging)
+and test the final APKs, including APKs generated from App Bundles, on a 16 KiB
+environment. Compressed libraries are extracted during installation and consume
+additional device storage.
+
 Applications supporting older Android releases need Java 8 library desugaring.
 For example, an application using AGP 7.4 or newer can configure:
 

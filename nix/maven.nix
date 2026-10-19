@@ -59,6 +59,11 @@ pkgs.stdenvNoCC.mkDerivation {
       for abi in arm64-v8a armeabi-v7a x86_64; do
         bash ${../scripts/build-android-native-check.sh} "$readelf" "$TMPDIR/aar/jni/$abi/libldk_node.so"
       done
+      bash ${../scripts}/build-android-consumer-check.sh lib/build/outputs/aar/lib-release.aar \
+        ${mirror}/net/java/dev/jna/jna/${androidJnaVersion}/jna-${androidJnaVersion}.aar \
+        ${mirror} lib/gradle.lockfile "$ANDROID_HOME" \
+        ${inputs.tools.android_build_tools} ${inputs.tools.android_compile_sdk} \
+        ${toString inputs.deployment_targets.android_min_sdk}
     ''}
   '';
   installPhase = ''

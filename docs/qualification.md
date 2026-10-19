@@ -70,26 +70,79 @@ and Xcode 16.4; they establish hosted operation, not independent external trust.
 The recipe now selects macOS 27's `xcode-27` runner, Xcode 27.0 build `27A266a`,
 and SDKs 27.0. Python and JVM native deployment targets move to macOS 12.0 on
 both architectures, replacing the earlier Intel 10.12 and ARM 11.0 targets.
-Local orchestration and recipe checks do not establish Apple compilation,
-runtime compatibility, or byte equality for this changed toolchain.
+The current-toolchain results below supersede the earlier hosted checks for
+compilation and byte equality. Execution on the declared minimum macOS version
+still needs qualification.
 
-Build a fresh candidate and repeat Darwin reproduction and consumer checks with
-these exact pins. Check both architectures' Mach-O deployment metadata and
-exercise the declared minimum OS before relying on its compatibility. Earlier
-candidate hashes and receipts cannot qualify the updated recipe.
+## Current candidate qualification
+
+On 2026-10-19, the throwaway repository built
+[`candidate-0.7.1-9a3cd7e51852-39256421271-1`](https://github.com/tnull/ldk-node-bindings-test/releases/tag/candidate-0.7.1-9a3cd7e51852-39256421271-1)
+from recipe `9a3cd7e5185236b3bb9fdd0f22593f47578d5686`. Its manifest SHA-256 is
+`970fd1011bb177cbe39742700cbaf3cd3448bb4880f23eba926b6ed175bf9fe1`.
+Subsequent changes to the production branch only document Android consumer
+packaging requirements and these results; executable recipe inputs are unchanged.
+
+| Check | Result |
+| --- | --- |
+| [Candidate build](https://github.com/tnull/ldk-node-bindings-test/actions/runs/39256421271) | All artifact groups passed |
+| [Anonymous reproduction](https://github.com/tnull/ldk-node-bindings-test/actions/runs/39264255547) | All six reproduction jobs passed, including complete unsigned packages and the Swift ZIP |
+| Darwin consumers | Swift package build and Python wheel installation/import passed with Xcode 27.0 |
+| Apple deployment metadata | Both architectures' JVM and Python libraries report SDK 27.0 and minimum macOS 12.0 |
+| [Container verification](https://github.com/tnull/ldk-node-bindings-test/actions/runs/39264259431) | Docker and Podman on Linux x86_64 passed generated, Linux x86_64, Android, and JVM verification; Docker on Linux aarch64 passed Linux aarch64 and JVM verification |
+| Local anonymous verification | Generated sources, all five Android publication files, and all five JVM publication files matched |
+| Local Linux x86_64 reproduction | Fresh native builds and wheel assembly matched both complete candidate files outside GitHub; Python 3.10 installation/import and Auditwheel passed |
+| [Android runtime qualification](https://github.com/tnull/ldk-node-bindings-test/actions/runs/39282458950) | Minified consumer passed on x86_64 emulators for API 21, 22, 23, and API 35 with 16 KiB pages |
+| Collection | Missing Darwin coverage was rejected; all six selected receipts produced a verified ledger |
+| Release tooling checks | All 54 tests, formatting, Clippy, and ShellCheck passed |
+
+The reproduction run also contains failed Android emulator jobs from an earlier
+test harness. Those failures do not invalidate its six successful reproduction
+jobs; runtime qualification is a separate check. Hosted reproduction and container
+runs establish operation on GitHub, not independent trust outside GitHub.
+Collection used local generated/Android/JVM receipts and hosted Linux/Darwin
+receipts; it exercises the coverage gate without granting publication approval.
+The deployment metadata check does not establish execution on macOS 12.0.
+
+The current Linux x86_64 reproduction used the locked manylinux image's verified
+layers, freshly unpacked for network-disabled Bubblewrap execution. Both Rust
+profiles compiled in fresh source and target directories, and the current recipe
+assembled the wheel. Full-file comparisons matched the candidate JVM library
+(`497270d468e66232fc2fa163dc1ab435dd6b7d105eddfecf318a9f8a90fd6e1d`)
+and wheel (`5900da4d015262098f630d5f0789913635e2abd6a0e3361a63cf541489f8312b`).
+This establishes byte equality outside GitHub; it does not produce a receipt
+from the public Docker/Podman verifier entrypoint.
+
+Each Android device report records exactly one successful
+`CandidateTest.minifiedCandidateStartsStopsAndCallsBack` execution. The test
+starts and stops two regtest nodes, invokes generated APIs, and checks native
+logging callbacks through the minified Kotlin consumer. A local fee-estimates
+endpoint supplies startup data; full channel integration is separate coverage.
+The API 35 device reports 16384-byte pages, with
+`bionic.linker.16kb.app_compat.enabled=false` and
+`pm.16kb.app_compat.disabled=true`. All five Android publication files match the
+candidate manifest, and all three packaged native ABI payloads match the AAR.
+Device execution covered x86_64.
+
+The test-only harness uses a separate Java instrumentation module and AGP 7.4's
+documented built-in runner fallback. Its earlier failures came from duplicate
+instrumentation runtimes and host-side test-launcher setup. The final test
+reports and native callback logs establish runtime success after those repairs;
+the candidate AAR and its native payloads are unchanged.
 
 ## Remaining release qualification
 
-Before production publication, run the complete GitHub runner matrix
-and independently reproduce every group on its required host. This includes
-native Linux aarch64 and Apple builds with the selected Xcode installation,
-complete unsigned Maven packages, and the Swift XCFramework ZIP. Exercise
-consumer installation separately from checksum comparison. TestPyPI staging
-must pass before PyPI publication.
+Before production publication, independently reproduce every group on its
+required host. The current candidate still needs native Linux x86_64, Linux
+aarch64, and Darwin receipts from outside GitHub; its other groups have local
+reproduction evidence. Exercise consumer installation separately from checksum
+comparison. Live TestPyPI staging and Maven publication have not been exercised;
+registry credentials and namespace ownership remain unqualified. TestPyPI
+staging must pass before PyPI publication.
 
-Android consumer qualification must include a 16 KiB device and API 21–23
-devices with the documented desugaring configuration. Compilation and ELF
-alignment checks do not establish older-device runtime compatibility; see
+Repeat Android consumer qualification for each candidate, including a 16 KiB
+device and API 21–23 devices with the documented desugaring configuration.
+Compilation and ELF alignment checks do not establish device compatibility; see
 [the Android consumer requirements](releasing.md#consumer-qualification).
 
 Service-contract tests use mocks and local Git repositories. They do not prove

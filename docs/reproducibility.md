@@ -24,7 +24,12 @@ ZIP. Maven PGP signatures are added locally later and are outside that compariso
 - **Linux distributions:** pinned manylinux containers supply the distributable
   native environment. A Nix-built ELF file is not automatically suitable for a
   user's Linux installation. Check runtime dependencies and reject references
-  to `/nix/store` in distributed native libraries.
+  to `/nix/store` in distributed native libraries. Verification resolves the
+  selected Docker context's local Unix socket before creating its isolated home;
+  explicit `DOCKER_HOST` applies unless `DOCKER_CONTEXT` overrides it. Docker
+  registry credentials and context files stay outside the build. Remote Docker
+  endpoints are unsupported because the build mounts local paths. Local Podman
+  is available through `CONTAINER_ENGINE=podman`.
 - **Android:** pin the NDK and API levels and preserve the three supported ABIs
   and 16 KiB page alignment. Host architecture, Android tools and dependency
   locks are inputs, rather than whatever a runner happens to provide.

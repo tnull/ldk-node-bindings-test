@@ -55,7 +55,7 @@ jobs:
           MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
         run: |
           mkdir -p "$RUNNER_TEMP/evidence"
-          env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify-docker.sh \
+          env -u GH_TOKEN -u GITHUB_TOKEN scripts/verify-containerized.sh \
             "$CANDIDATE_ID" "$MANIFEST_SHA256" \
             --repo tnull/ldk-node-bindings-test \
             --output "$RUNNER_TEMP/verification" 2>&1 | tee "$RUNNER_TEMP/evidence/verify.log"

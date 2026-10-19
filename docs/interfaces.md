@@ -64,9 +64,13 @@ Rust workspace exposes `release` via `nix run .#release -- COMMAND ...`.
 - `collect --candidate URL_OR_DIR --receipts DIR --output FILE`: rehash actual
   candidate files, require all groups and accepted independent receipts,
   validate receipt hosts and JVM native dependencies, emit a verified ledger.
+  `scripts/collect.sh` exposes the same options through pinned Nix tools.
 - `publish --verified FILE --candidate URL_OR_DIR --destination DEST
   --confirm CANDIDATE_ID`: local-only final publication of verified bytes.
   Destinations: `testpypi`, `pypi`, `maven`, `swift`. Reject CI environments.
+  `scripts/publish.sh` exposes the same options and requires the same explicit
+  confirmation. Collection/publication wrappers preserve the caller's working
+  directory and require it to be within the candidate's clean recipe checkout.
 
 Candidate IDs: `candidate-VERSION-RECIPE12-RUN_ID-ATTEMPT`; non-SemVer, unique,
 never overwrite. Candidates are PUBLIC GitHub prereleases (not drafts), with

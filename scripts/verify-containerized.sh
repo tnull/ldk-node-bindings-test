@@ -7,6 +7,17 @@ usage() {
     echo 'Verifies Linux groups only. Requires Git, tar, and a working local container engine.'
 }
 if [[ ${1:-} = --help || ${1:-} = -h ]]; then usage; exit 0; fi
+report_result() {
+    if [[ $1 = 0 ]]; then
+        echo 'VERIFICATION SUCCESSFUL'
+    else
+        echo 'VERIFICATION FAILED' >&2
+    fi
+    exit "$1"
+}
+trap 'report_result "$?"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 [[ $# -ge 2 ]] || { usage >&2; exit 2; }
 arguments=("$1" "$2")
 shift 2
@@ -102,12 +113,12 @@ cleanup() {
         kill "$service_pid" 2>/dev/null || true
         wait "$service_pid" 2>/dev/null || true
     fi
-    [[ -z $socket_dir ]] || rm -rf -- "$socket_dir"
-    exit "$status"
+    if [[ -n $socket_dir ]] && ! rm -rf -- "$socket_dir"; then
+        [[ $status != 0 ]] || status=1
+    fi
+    report_result "$status"
 }
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 if [[ ${engine##*/} = podman ]]; then
     socket_dir=$(mktemp -d /tmp/ldk-verify-socket-XXXXXXXX)
     socket=$socket_dir/engine.sock
@@ -132,7 +143,7 @@ printf 'Verification results: %s\nBuild scratch and logs: %s\nNix cache volume: 
     -v "$store:/nix" -v "$state:/state" -v "$state/work:/tmp" \
     -v "$output:/results" -v "$socket:/run/engine.sock" \
     -e DOCKER_HOST=unix:///run/engine.sock \
-    "$image" bash -euc 'mkdir /recipe; tar -xf /state/source.tar -C /recipe; exec bash /recipe/scripts/verify-docker-inner.sh "$@"' \
-    verify-docker "${arguments[@]}" &
+    "$image" bash -euc 'mkdir /recipe; tar -xf /state/source.tar -C /recipe; exec bash /recipe/scripts/verify-containerized-inner.sh "$@"' \
+    verify-containerized "${arguments[@]}" &
 client_pid=$!
 wait "$client_pid"

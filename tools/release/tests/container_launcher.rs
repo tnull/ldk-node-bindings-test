@@ -60,8 +60,8 @@ fn container_launcher_preserves_arguments_results_and_failure() {
         .success());
     fs::create_dir(checkout.join("scripts")).unwrap();
     fs::copy(
-        root().join("scripts/verify-docker.sh"),
-        checkout.join("scripts/verify-docker.sh"),
+        root().join("scripts/verify-containerized.sh"),
+        checkout.join("scripts/verify-containerized.sh"),
     )
     .unwrap();
     fs::write(checkout.join("private-untracked-file"), "must stay on host").unwrap();
@@ -84,14 +84,18 @@ case $1 in
     context) printf 'unix://%s\n' "$TEST_SOCKET" ;;
     run)
         for arg in "$@"; do
-            if [[ $arg = chown ]]; then printf '%s\n' "$@" > "$TEST_OWNER"; exit 0; fi
+            if [[ $arg = chown ]]; then
+                printf '%s\n' "$@" > "$TEST_OWNER"
+                echo 'ownership repair finished'
+                exit "$TEST_CLEANUP_STATUS"
+            fi
         done
         printf '%s\n' "$@" > "$TEST_ARGS"
         for arg in "$@"; do
             case $arg in *:/state) tar -tf "${arg%:/state}/source.tar" > "$TEST_ARCHIVE" ;; esac
         done
         if [[ ${TEST_CANCEL:-false} = true ]]; then kill -TERM "$PPID"; exec sleep 30; fi
-        exit 37 ;;
+        exit "$TEST_STATUS" ;;
     ps)
         name=$(sed -n '/^--name$/{n;p;}' "$TEST_ARGS")
         [[ $2 = -aq && $3 = --filter && $4 = "label=ldk.bindings.verify=$name" ]] || exit 92
@@ -103,12 +107,19 @@ esac
     );
     let output = temp.path().join("results with spaces");
     let args = temp.path().join("args");
-    for (cancel, rootless) in [(false, false), (true, false), (false, true)] {
+    for (cancel, rootless, verifier_status, cleanup_status) in [
+        (false, false, 0, 0),
+        (false, false, 37, 0),
+        (true, false, 37, 0),
+        (false, true, 37, 0),
+        (false, false, 0, 5),
+        (false, false, 37, 5),
+    ] {
         fs::write(temp.path().join("cleanup"), "").unwrap();
         fs::write(temp.path().join("owner"), "").unwrap();
         let started = std::time::Instant::now();
         let result = Command::new("bash")
-            .arg(checkout.join("scripts/verify-docker.sh"))
+            .arg(checkout.join("scripts/verify-containerized.sh"))
             .current_dir(temp.path())
             .args([
                 "candidate-test",
@@ -127,17 +138,37 @@ esac
             .env("TEST_CLEANUP", temp.path().join("cleanup"))
             .env("TEST_CANCEL", cancel.to_string())
             .env("TEST_ROOTLESS", rootless.to_string())
+            .env("TEST_STATUS", verifier_status.to_string())
+            .env("TEST_CLEANUP_STATUS", cleanup_status.to_string())
             .env("TEST_OWNER", temp.path().join("owner"))
             .env_remove("DOCKER_HOST")
             .env_remove("DOCKER_CONTEXT")
             .output()
             .unwrap();
+        let expected = if cancel {
+            143
+        } else if verifier_status == 0 && cleanup_status != 0 {
+            1
+        } else {
+            verifier_status
+        };
         assert_eq!(
             result.status.code(),
-            Some(if cancel { 143 } else { 37 }),
+            Some(expected),
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        let (summary, other, banner) = if expected == 0 {
+            (&stdout, &stderr, "VERIFICATION SUCCESSFUL")
+        } else {
+            (&stderr, &stdout, "VERIFICATION FAILED")
+        };
+        assert_eq!(summary.lines().last(), Some(banner), "{stdout}\n{stderr}");
+        assert_eq!(summary.matches("VERIFICATION ").count(), 1);
+        assert!(!other.contains("VERIFICATION "), "{stdout}\n{stderr}");
+        assert!(stdout.contains("ownership repair finished"));
         let arguments = fs::read_to_string(&args).unwrap();
         let arguments: Vec<_> = arguments.lines().collect();
         assert!(
@@ -151,7 +182,7 @@ esac
         assert!(output.is_dir());
         assert_eq!(
             fs::read_to_string(temp.path().join("archive")).unwrap(),
-            "scripts/verify-docker.sh\n"
+            "scripts/verify-containerized.sh\n"
         );
         assert!(
             fs::read_to_string(temp.path().join("cleanup"))
@@ -178,7 +209,7 @@ esac
 #[test]
 fn container_launcher_rejects_darwin_before_starting_engine() {
     let result = Command::new("bash")
-        .arg(root().join("scripts/verify-docker.sh"))
+        .arg(root().join("scripts/verify-containerized.sh"))
         .args(["candidate-test", &"a".repeat(64), "--group", "darwin"])
         .env("CONTAINER_ENGINE", "/nonexistent-engine")
         .output()
@@ -190,14 +221,39 @@ fn container_launcher_rejects_darwin_before_starting_engine() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+    assert_eq!(result.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8_lossy(&result.stderr).lines().last(),
+        Some("VERIFICATION FAILED")
+    );
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("VERIFICATION SUCCESSFUL"));
+}
+
+#[test]
+fn container_launcher_help_does_not_claim_verification() {
+    for flag in ["--help", "-h"] {
+        let result = Command::new("bash")
+            .arg(root().join("scripts/verify-containerized.sh"))
+            .arg(flag)
+            .env("CONTAINER_ENGINE", "/nonexistent-engine")
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        assert!(String::from_utf8_lossy(&result.stdout).contains("Usage:"));
+        assert!(!String::from_utf8_lossy(&result.stdout).contains("VERIFICATION "));
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("VERIFICATION "));
+    }
 }
 
 #[test]
 fn container_engine_maps_shared_store_and_private_scratch() {
     let temp = tempfile::tempdir().unwrap();
     let engine = temp.path().join("engine");
-    fs::copy(root().join("scripts/verify-docker-engine.sh"), &engine)
-        .expect("container engine adapter must exist");
+    fs::copy(
+        root().join("scripts/verify-containerized-engine.sh"),
+        &engine,
+    )
+    .expect("container engine adapter must exist");
     let client = temp.path().join("client");
     let args = temp.path().join("args");
     executable(

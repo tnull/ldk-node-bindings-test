@@ -568,6 +568,107 @@ fn verify_rebuilds_fresh_without_secrets_and_keeps_host_selectors() {
 
 #[test]
 #[cfg(unix)]
+fn verify_resolves_active_docker_context_before_isolation() {
+    verify_docker_context("active");
+}
+
+#[test]
+#[cfg(unix)]
+fn verify_explicit_docker_context_overrides_host() {
+    verify_docker_context("explicit-context");
+}
+
+#[test]
+#[cfg(unix)]
+fn verify_preserves_explicit_docker_host() {
+    verify_docker_context("explicit-host");
+}
+
+#[cfg(unix)]
+fn verify_docker_context(mode: &str) {
+    let mut r = fixture();
+    let bin = tempfile::tempdir().unwrap();
+    let home = bin.path().join("operator-home");
+    let config = bin.path().join("operator-config");
+    fs::create_dir(&home).unwrap();
+    fs::create_dir(&config).unwrap();
+    fs::write(config.join("config.json"), "registry credentials stay here").unwrap();
+    executable(
+        &bin.path().join("docker"),
+        r##"#!/bin/sh
+set -eu
+bin=$(dirname "$0")
+if [ "$1" = --version ]; then printf 'Docker version 28.5.1\n'; exit 0; fi
+[ "$HOME" = "$bin/operator-home" ] && [ "$DOCKER_CONFIG" = "$bin/operator-config" ] || exit 90
+[ "$1" = context ] && [ "$2" = inspect ] || exit 91
+[ "${DOCKER_CONTEXT:-local-release}" = local-release ] || exit 92
+printf 'unix:///tmp/selected-docker.sock\n'
+"##,
+    );
+    fs::create_dir(r.dir.path().join("scripts")).unwrap();
+    executable(
+        &r.dir.path().join("scripts/build.sh"),
+        r##"#!/bin/sh
+set -eu
+[ "${DOCKER_HOST:-}" = unix:///tmp/selected-docker.sock ] || { echo 'Docker endpoint was not preserved' >&2; exit 93; }
+[ -z "${DOCKER_CONTEXT+x}${DOCKER_CONFIG+x}${UV_PUBLISH_TOKEN+x}" ] || { echo 'Docker configuration leaked into build' >&2; exit 94; }
+[ ! -e "$HOME/.docker/config.json" ] || exit 95
+mkdir -p "$4"
+printf 'payload "linux.whl"' > "$4/linux.whl"
+printf 'payload "jvm-linux-x86_64.so"' > "$4/jvm-linux-x86_64.so"
+"##,
+    );
+    git(r.dir.path(), &["add", "."]);
+    git(
+        r.dir.path(),
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.org",
+            "commit",
+            "-m",
+            "Build fixture",
+        ],
+    );
+    r.sha = git(r.dir.path(), &["rev-parse", "HEAD"]);
+    build_candidate(&r);
+    let output = tempfile::tempdir().unwrap();
+    let mut invoke = command(env!("CARGO_BIN_EXE_release"));
+    invoke
+        .current_dir(r.dir.path())
+        .args([
+            "verify",
+            "--candidate",
+            r.candidate.path().to_str().unwrap(),
+            "--group",
+            "linux-x86_64",
+            "--output",
+            output.path().to_str().unwrap(),
+        ])
+        .env("CONTAINER_ENGINE", bin.path().join("docker"))
+        .env("HOME", &home)
+        .env("DOCKER_CONFIG", &config)
+        .env("UV_PUBLISH_TOKEN", "secret")
+        .env_remove("DOCKER_CONTEXT")
+        .env_remove("DOCKER_HOST");
+    match mode {
+        "explicit-context" => {
+            invoke
+                .env("DOCKER_CONTEXT", "local-release")
+                .env("DOCKER_HOST", "unix:///tmp/wrong-docker.sock");
+        }
+        "explicit-host" => {
+            invoke.env("DOCKER_HOST", "unix:///tmp/selected-docker.sock");
+        }
+        _ => {}
+    }
+    ok(invoke.output().unwrap());
+    assert!(output.path().join("linux-x86_64.receipt.json").is_file());
+}
+
+#[test]
+#[cfg(unix)]
 fn maven_publishes_validated_deployment_and_resumes_by_id() {
     let r = fixture();
     let c = build_candidate(&r);
@@ -889,6 +990,163 @@ touch "$MOCK_UPLOADED"
         .iter()
         .map(|v| v["filename"].as_str().unwrap())
         .collect();
+    expected.sort();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+#[cfg(unix)]
+fn pypi_uploads_to_production_endpoint() {
+    pypi_publication_scenario("endpoint");
+}
+
+#[test]
+#[cfg(unix)]
+fn pypi_consumer_is_isolated_and_requires_candidate_hashes() {
+    pypi_publication_scenario("consumer");
+}
+
+#[cfg(unix)]
+fn pypi_publication_scenario(mode: &str) {
+    let r = fixture();
+    let c = build_candidate(&r);
+    let accepted = receipts(&r, &c);
+    let ledger = accepted.path().join("verified.json");
+    ok(run(
+        r.dir.path(),
+        &[
+            "collect",
+            "--candidate",
+            r.candidate.path().to_str().unwrap(),
+            "--receipts",
+            accepted.path().to_str().unwrap(),
+            "--output",
+            ledger.to_str().unwrap(),
+        ],
+    ));
+    let bin = tempfile::tempdir().unwrap();
+    let wheels: Vec<_> = c["groups"]
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|group| group["files"].as_array().unwrap())
+        .filter(|file| file["name"].as_str().unwrap().ends_with(".whl"))
+        .collect();
+    let urls: Vec<_> = wheels
+        .iter()
+        .map(|file| json!({"filename":file["name"],"digests":{"sha256":file["sha256"]}}))
+        .collect();
+    write(&bin.path().join("registry.json"), &json!({"urls":urls}));
+    fs::write(bin.path().join("mode"), mode).unwrap();
+    let mut requirement = String::from("ldk-node==0.7.1");
+    for file in &wheels {
+        requirement.push_str(&format!(
+            " --hash=sha256:{}",
+            file["sha256"].as_str().unwrap()
+        ));
+    }
+    requirement.push('\n');
+    fs::write(bin.path().join("expected-requirement"), requirement).unwrap();
+    fs::write(bin.path().join("uv.toml"), "invalid caller configuration").unwrap();
+    executable(
+        &bin.path().join("curl"),
+        r##"#!/bin/sh
+set -eu
+bin=$(dirname "$0")
+for url do :; done
+case "$url" in
+    https://test.pypi.org/pypi/ldk-node/0.7.1/json) cat "$bin/registry.json"; printf '\n200';;
+    https://pypi.org/pypi/ldk-node/0.7.1/json)
+        if [ -e "$bin/uploaded" ]; then cat "$bin/registry.json"; printf '\n200'; else printf '\n404'; fi;;
+    *) echo 'unexpected registry query' >&2; exit 90;;
+esac
+"##,
+    );
+    executable(
+        &bin.path().join("uv"),
+        r##"#!/bin/sh
+set -eu
+bin=$(dirname "$0")
+mode=$(cat "$bin/mode")
+args=" $* "
+for last do :; done
+case "$args" in
+    *' publish '*)
+        case "$args" in *' --publish-url https://upload.pypi.org/legacy/ '*) ;; *) echo 'wrong production upload endpoint' >&2; exit 91;; esac
+        [ "$UV_PUBLISH_TOKEN" = fake-production-token ] || exit 92
+        printf '%s\n' "${last##*/}" >> "$bin/uploads"
+        touch "$bin/uploaded"
+        exit 0;;
+esac
+if [ "$mode" != endpoint ]; then
+    [ -z "${UV_EXTRA_INDEX_URL+x}" ] || { echo 'consumer inherited UV_EXTRA_INDEX_URL' >&2; exit 93; }
+    [ -z "${UV_CONFIG_FILE+x}${UV_FIND_LINKS+x}${UV_PUBLISH_TOKEN+x}${PIP_INDEX_URL+x}${PYTHONPATH+x}" ] || { echo 'consumer inherited resolver or Python configuration' >&2; exit 94; }
+    case "$args" in *' --no-config '*) ;; *) echo 'consumer reads uv configuration' >&2; exit 95;; esac
+    case "$args" in *' --no-cache '*) ;; *) echo 'consumer can reuse cached wheels' >&2; exit 96;; esac
+fi
+case "$args" in
+    *' venv '*)
+        mkdir -p "$last/bin"
+        cp "$bin/consumer-python" "$last/bin/python";;
+    *' pip install '*)
+        if [ "$mode" != endpoint ]; then
+            case "$args" in *' --index-url https://test.pypi.org/simple/ '*) ;; *) exit 97;; esac
+            case "$args" in *' --require-hashes '*) ;; *) echo 'consumer does not require candidate hashes' >&2; exit 98;; esac
+            case "$args" in *' --only-binary :all: '*) ;; *) exit 99;; esac
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = --requirements ]; then cmp "$2" "$bin/expected-requirement"; break; fi
+                shift
+            done
+            [ "$#" -gt 0 ] || { echo 'consumer lacks candidate requirements' >&2; exit 100; }
+        fi;;
+    *) echo 'unexpected uv operation' >&2; exit 102;;
+esac
+"##,
+    );
+    executable(
+        &bin.path().join("consumer-python"),
+        if mode == "endpoint" {
+            "#!/bin/sh\nexit 0\n"
+        } else {
+            "#!/bin/sh\n[ \"$1\" = -I ] && [ -z \"${PYTHONPATH+x}${UV_PUBLISH_TOKEN+x}\" ] || exit 103\n"
+        },
+    );
+    let result = command(env!("CARGO_BIN_EXE_release"))
+        .current_dir(r.dir.path())
+        .args([
+            "publish",
+            "--candidate",
+            r.candidate.path().to_str().unwrap(),
+            "--verified",
+            ledger.to_str().unwrap(),
+            "--destination",
+            "pypi",
+            "--confirm",
+            c["id"].as_str().unwrap(),
+        ])
+        .env_remove("CI")
+        .env_remove("GITHUB_ACTIONS")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .env("UV_PUBLISH_TOKEN", "fake-production-token")
+        .env("UV_EXTRA_INDEX_URL", "https://other.invalid/simple/")
+        .env("UV_CONFIG_FILE", bin.path().join("uv.toml"))
+        .env("UV_FIND_LINKS", bin.path())
+        .env("PIP_INDEX_URL", "https://other.invalid/simple/")
+        .env("PYTHONPATH", bin.path())
+        .output()
+        .unwrap();
+    ok(result);
+    let uploaded = fs::read_to_string(bin.path().join("uploads")).unwrap();
+    let mut actual: Vec<_> = uploaded.lines().collect();
+    actual.sort();
+    let mut expected: Vec<_> = wheels.iter().map(|f| f["name"].as_str().unwrap()).collect();
     expected.sort();
     assert_eq!(actual, expected);
 }
@@ -1346,6 +1604,10 @@ fn entry_run_repo(
     repo: Option<&str>,
 ) -> Output {
     let bin = tempfile::tempdir().unwrap();
+    executable(
+        &bin.path().join("docker"),
+        "#!/bin/sh\ncase \"$1\" in --version) echo 'Docker version 28.5.1';; context) echo 'unix:///tmp/fixture-docker.sock';; *) exit 91;; esac\n",
+    );
     let official = tempfile::tempdir().unwrap();
     git(official.path(), &["init", "--bare", "--quiet"]);
     git(
@@ -1438,6 +1700,9 @@ cp "$MOCK_CANDIDATE/$name" "$destination"
             ),
         )
         .env("MOCK_CANDIDATE", r.candidate.path())
+        .env("CONTAINER_ENGINE", bin.path().join("docker"))
+        .env_remove("DOCKER_HOST")
+        .env_remove("DOCKER_CONTEXT")
         .env(
             "MOCK_REPO",
             repo.unwrap_or("lightningdevkit/ldk-node-bindings"),
@@ -1861,11 +2126,11 @@ fn entry_supports_one_group_and_preserves_mismatch_diagnostics() {
 
 #[test]
 #[cfg(unix)]
-fn verification_script_passes_arguments_and_preserves_exit_status() {
+fn shell_entrypoints_preserve_arguments_and_exit_status() {
     let bin = tempfile::tempdir().unwrap();
     executable(
         &bin.path().join("nix"),
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MOCK_ARGUMENTS\"\nexit 37\n",
+        "#!/bin/sh\npwd > \"$MOCK_CWD\"\nprintf '%s\\n' \"$@\" > \"$MOCK_ARGUMENTS\"\nexit 37\n",
     );
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -1873,51 +2138,103 @@ fn verification_script_passes_arguments_and_preserves_exit_status() {
         .parent()
         .unwrap();
     let args_file = bin.path().join("arguments");
-    let result = Command::new("bash")
-        .arg(root.join("scripts/verify.sh"))
-        .args([
-            "candidate-version-recipe-run-attempt",
-            &"a".repeat(64),
-            "--group",
-            "generated",
-            "--output",
-            "/tmp/output with spaces",
-            "--repo",
-            "tnull/ldk-node-bindings-test",
-        ])
-        .env("MOCK_ARGUMENTS", &args_file)
-        .env(
-            "PATH",
-            format!(
-                "{}:{}",
-                bin.path().display(),
-                std::env::var("PATH").unwrap()
-            ),
-        )
-        .output()
-        .unwrap();
-    assert_eq!(result.status.code(), Some(37));
-    let args = fs::read_to_string(args_file).unwrap();
-    assert_eq!(
-        args.lines().collect::<Vec<_>>(),
-        [
+    let cwd_file = bin.path().join("cwd");
+    let sha256 = "a".repeat(64);
+    let cases = [
+        (
+            "verify",
+            "verify-candidate",
+            vec![
+                "candidate-version-recipe-run-attempt",
+                &sha256,
+                "--group",
+                "generated",
+                "--output",
+                "/tmp/output with spaces",
+                "--repo",
+                "tnull/ldk-node-bindings-test",
+            ],
+        ),
+        (
+            "collect",
+            "collect",
+            vec![
+                "--candidate",
+                "../candidate files",
+                "--receipts",
+                "../accepted receipts",
+                "--output",
+                "verified ledger.json",
+            ],
+        ),
+        (
+            "publish",
+            "publish",
+            vec![
+                "--candidate",
+                "../candidate files",
+                "--verified",
+                "verified ledger.json",
+                "--destination",
+                "swift",
+                "--confirm",
+                "candidate-version-recipe-run-attempt",
+                "--repo",
+                "example/swift-distribution",
+            ],
+        ),
+    ];
+    for (script, subcommand, arguments) in cases {
+        let result = Command::new("bash")
+            .arg(root.join(format!("scripts/{script}.sh")))
+            .current_dir(root.join("tools"))
+            .args(&arguments)
+            .env("MOCK_ARGUMENTS", &args_file)
+            .env("MOCK_CWD", &cwd_file)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.path().display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(37),
+            "{script}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let flake = format!("{}#release", fs::canonicalize(root).unwrap().display());
+        let mut expected = vec![
             "--extra-experimental-features",
             "nix-command flakes",
             "run",
             "--no-update-lock-file",
-            &format!("{}#release", fs::canonicalize(root).unwrap().display()),
+            &flake,
             "--",
-            "verify-candidate",
-            "candidate-version-recipe-run-attempt",
-            &"a".repeat(64),
-            "--group",
-            "generated",
-            "--output",
-            "/tmp/output with spaces",
-            "--repo",
-            "tnull/ldk-node-bindings-test",
-        ]
-    );
+            subcommand,
+        ];
+        expected.extend(arguments);
+        assert_eq!(
+            fs::read_to_string(&args_file)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let expected_cwd = if script == "verify" {
+            root.to_path_buf()
+        } else {
+            root.join("tools")
+        };
+        assert_eq!(
+            fs::read_to_string(&cwd_file).unwrap().trim(),
+            fs::canonicalize(expected_cwd).unwrap().to_str().unwrap()
+        );
+    }
 }
 
 #[test]

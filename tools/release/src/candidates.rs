@@ -360,6 +360,35 @@ pub fn verify_candidate(
     Ok(())
 }
 
+fn docker_endpoint() -> Result<Option<String>> {
+    let engine = std::env::var_os("CONTAINER_ENGINE")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "docker".into());
+    if output(Command::new(&engine).arg("--version"))?
+        .to_ascii_lowercase()
+        .contains("podman")
+    {
+        return Ok(None);
+    }
+    let context = std::env::var("DOCKER_CONTEXT").unwrap_or_default();
+    let explicit_host = std::env::var("DOCKER_HOST").unwrap_or_default();
+    let host = if context.is_empty() && !explicit_host.is_empty() {
+        explicit_host
+    } else {
+        output(Command::new(&engine).args([
+            "context",
+            "inspect",
+            "--format",
+            "{{.Endpoints.docker.Host}}",
+        ]))?
+    };
+    ensure!(
+        host.starts_with("unix:///"),
+        "Linux verification requires a local Docker Unix socket; select a local context or use CONTAINER_ENGINE=podman"
+    );
+    Ok(Some(host))
+}
+
 fn verify_loaded(
     root: &Path,
     loaded: &Loaded,
@@ -420,6 +449,15 @@ fn verify_loaded(
         ] {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
+            }
+        }
+        if group.starts_with("linux-") {
+            if let Some(host) = docker_endpoint()? {
+                // Resolve under the caller's HOME, then carry only the socket
+                // into isolation, without context files or registry credentials.
+                command
+                    .env("DOCKER_HOST", host)
+                    .env_remove("DOCKER_CONTEXT");
             }
         }
         command

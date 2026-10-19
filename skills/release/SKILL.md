@@ -7,6 +7,10 @@ description: Prepare, independently verify, or locally publish LDK Node Swift, K
 
 Use this repository-local skill directly by path; global installation is not
 required. The shared entrypoint is `nix run .#release -- COMMAND ...`.
+For manual collection/publication, `scripts/collect.sh` and `scripts/publish.sh`
+accept the same CLI options from the candidate's clean recipe checkout. Prefer
+these entrypoints in the commands handed to a maintainer; publication still
+requires the explicit request and candidate confirmation described below.
 Read [the release procedure](references/procedure.md) for the requested stage.
 The commands and host requirements are documented in the repository
 [README](../../README.md) and [release guide](../../docs/releasing.md).

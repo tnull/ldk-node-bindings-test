@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Translate the immutable recipe's bind paths for sibling containers.
 set -euo pipefail
-# This file is generated locally by verify-docker.sh, outside the candidate.
+# This file is generated locally by verify-containerized.sh, outside the candidate.
 # shellcheck source=/dev/null
 source "$(dirname -- "${BASH_SOURCE[0]}")/engine.env"
 : "${client:?}" "${store:?}" "${host_work:?}" "${run_id:?}"
