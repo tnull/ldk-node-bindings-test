@@ -12,6 +12,11 @@ on:
         description: Reviewed SHA-256 of candidate.json
         required: true
         type: string
+      android_only:
+        description: Run Android device qualification without repeating native reproduction
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -34,6 +39,7 @@ jobs:
 
   verify:
     needs: inputs
+    if: ${{ ! inputs.android_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -156,5 +162,101 @@ jobs:
         with:
           name: verify-${{ matrix.group }}
           path: ${{ runner.temp }}/verification-evidence/
+          if-no-files-found: error
+          retention-days: 7
+
+  android-runtime:
+    needs: inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 21
+            image: google_apis
+            revision: 32
+            page_size: 4096
+          - api: 22
+            image: google_apis
+            revision: 26
+            page_size: 4096
+          - api: 23
+            image: google_apis
+            revision: 33
+            page_size: 4096
+          - api: 35
+            image: google_apis_ps16k
+            revision: 5
+            page_size: 16384
+    steps:
+      - name: Fetch the exact test revision anonymously
+        shell: bash
+        run: |
+          unset GH_TOKEN GITHUB_TOKEN
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_TERMINAL_PROMPT=0
+          git init --quiet --template=
+          git -c credential.helper= -c core.askPass= fetch --quiet --depth=1 \
+            "https://github.com/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Select consumer tools and enable KVM
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libpulse0
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          printf '%s\n' "$JAVA_HOME_17_X64/bin" "$ANDROID_HOME/cmdline-tools/latest/bin" \
+            "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          curl --fail --location https://downloads.gradle.org/distributions/gradle-7.6-bin.zip \
+            --output "$RUNNER_TEMP/gradle.zip"
+          printf '7ba68c54029790ab444b39d7e293d3236b2632631fb5f2e012bb28b4ff669e4b  %s\n' \
+            "$RUNNER_TEMP/gradle.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-7.6/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_RUNTIME_EVIDENCE=$RUNNER_TEMP/android-runtime" >> "$GITHUB_ENV"
+      - name: Download and authenticate the actual candidate Android publication
+        env:
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        shell: bash
+        run: |
+          bash smoke/android-runtime/prepare.sh "$CANDIDATE_ID" "$MANIFEST_SHA256" \
+            "$RUNNER_TEMP/android-runtime"
+      - name: Build the minified consumer
+        shell: bash
+        run: |
+          bash smoke/android-runtime/check-results-test.sh
+          bash smoke/android-runtime/check-emulator-test.sh
+          sdkmanager --install 'platforms;android-34' 'build-tools;34.0.0'
+          gradle -p smoke/android-runtime --no-daemon --no-build-cache \
+            :app:assembleRelease :instrumentation:assembleRelease \
+            2>&1 | tee "$ANDROID_RUNTIME_EVIDENCE/assemble.log"
+          bash smoke/android-runtime/check-apk.sh
+      - name: Run native calls and callbacks on the emulator
+        env:
+          ANDROID_API: ${{ matrix.api }}
+          ANDROID_IMAGE: ${{ matrix.image }}
+          ANDROID_IMAGE_REVISION: ${{ matrix.revision }}
+          ANDROID_PAGE_SIZE: ${{ matrix.page_size }}
+        shell: bash
+        run: |
+          bash smoke/android-runtime/emulator.sh "$ANDROID_API" "$ANDROID_IMAGE" \
+            "$ANDROID_IMAGE_REVISION" "$ANDROID_PAGE_SIZE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-runtime-api-${{ matrix.api }}
+          path: |
+            ${{ runner.temp }}/android-runtime/
+            smoke/android-runtime/app/build/outputs/mapping/release/
+            smoke/android-runtime/app/build/outputs/apk/
+            smoke/android-runtime/instrumentation/build/outputs/androidTest-results/
+            smoke/android-runtime/instrumentation/build/outputs/apk/
+            smoke/android-runtime/instrumentation/build/outputs/mapping/release/
+            smoke/android-runtime/instrumentation/build/reports/androidTests/
           if-no-files-found: error
           retention-days: 7
